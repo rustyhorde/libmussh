@@ -115,7 +115,19 @@ aliasfor = "dedah"
 "#;
 
     const MUSSH_TOML: &str = r#"[hostlist.i686]
-hostnames = ["m1", "m2", "m3"]"#;
+hostnames = ["m1", "m2", "m3"]
+[hosts.m1]
+hostname = "10.0.0.3"
+pem = "abcdef"
+port = 22
+username = "jozias"
+
+[[hosts.m1.alias]]
+command = "blah"
+aliasfor = "dedah"
+[cmd.ls]
+command = "blah"
+"#;
 
     lazy_static! {
         static ref ALIAS: Alias = Alias {
