@@ -1,0 +1,15 @@
+[package]
+name = "libmussh"
+version = "0.1.0"
+authors = ["Jason Ozias <jason.ozias@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2"
+crossbeam = "0"
+failure = "0"
+getset = "0"
+indexmap = "1"
+serde = "1"
+serde_derive = "1"
+toml = "0"
