@@ -92,62 +92,138 @@ crate struct Alias {
 
 #[cfg(test)]
 mod test {
-    use super::{Alias, Command};
+    use super::{Alias, Command, Host, Hosts, Mussh};
     use failure::Fallible;
+    use lazy_static::lazy_static;
+    use std::collections::BTreeMap;
 
-    const ALIAS: &str = r#"command = "blah"
+    const ALIAS_TOML: &str = r#"command = "blah"
 aliasfor = "dedah"
 "#;
-    const COMMAND: &str = r#"command = "blah"
+    const COMMAND_TOML: &str = r#"command = "blah"
 "#;
-    #[allow(dead_code)]
-    const HOST: &str = r#"hostname = "10.0.0.3"
-port = 22
+    const HOST_TOML: &str = r#"hostname = "10.0.0.3"
 pem = "abcdef"
+port = 22
 username = "jozias"
+
 [[alias]]
 command = "blah"
 aliasfor = "dedah"
 "#;
+    const HOSTS_TOML: &str = r#"hostnames = ["m1", "m2", "m3"]
+"#;
 
-    #[test]
-    fn de_alias() -> Fallible<()> {
-        let expected = Alias {
+    const MUSSH_TOML: &str = r#"[hostlist.i686]
+hostnames = ["m1", "m2", "m3"]"#;
+
+    lazy_static! {
+        static ref ALIAS: Alias = Alias {
             command: "blah".to_string(),
             aliasfor: "dedah".to_string(),
         };
-        let actual: Alias = toml::from_str(ALIAS)?;
-        assert_eq!(expected, actual);
+        static ref COMMAND: Command = Command {
+            command: "blah".to_string(),
+        };
+        static ref HOST: Host = {
+            let alias = ALIAS.clone();
+            Host {
+                hostname: "10.0.0.3".to_string(),
+                pem: Some("abcdef".to_string()),
+                port: Some(22),
+                username: "jozias".to_string(),
+                alias: Some(vec![alias]),
+            }
+        };
+        static ref HOSTS: Hosts = Hosts {
+            hostnames: vec!["m1".to_string(), "m2".to_string(), "m3".to_string()],
+        };
+        static ref MUSSH: Mussh = {
+            let mut hostlist = BTreeMap::new();
+            let _ = hostlist.insert("i686".to_string(), HOSTS.clone());
+            let mut hosts = BTreeMap::new();
+            let _ = hosts.insert("m1".to_string(), HOST.clone());
+            let mut cmd = BTreeMap::new();
+            let _ = cmd.insert("ls".to_string(), COMMAND.clone());
+            Mussh {
+                hostlist: hostlist,
+                hosts: hosts,
+                cmd: cmd,
+            }
+        };
+    }
+
+    #[test]
+    fn de_alias() -> Fallible<()> {
+        let actual: Alias = toml::from_str(ALIAS_TOML)?;
+        assert_eq!(*ALIAS, actual);
         Ok(())
     }
 
     #[test]
     fn ser_alias() -> Fallible<()> {
-        let expected = ALIAS;
-        let actual = toml::to_string(&Alias {
-            command: "blah".to_string(),
-            aliasfor: "dedah".to_string(),
-        })?;
+        let expected = ALIAS_TOML;
+        let actual = toml::to_string(&(*ALIAS))?;
         assert_eq!(expected, actual);
         Ok(())
     }
 
     #[test]
     fn de_command() -> Fallible<()> {
-        let expected = Command {
-            command: "blah".to_string(),
-        };
-        let actual: Command = toml::from_str(COMMAND)?;
-        assert_eq!(expected, actual);
+        let actual: Command = toml::from_str(COMMAND_TOML)?;
+        assert_eq!(*COMMAND, actual);
         Ok(())
     }
 
     #[test]
     fn ser_command() -> Fallible<()> {
-        let expected = COMMAND;
-        let actual = toml::to_string(&Command {
-            command: "blah".to_string(),
-        })?;
+        let expected = COMMAND_TOML;
+        let actual = toml::to_string(&(*COMMAND))?;
+        assert_eq!(expected, actual);
+        Ok(())
+    }
+
+    #[test]
+    fn de_host() -> Fallible<()> {
+        let actual: Host = toml::from_str(HOST_TOML)?;
+        assert_eq!(*HOST, actual);
+        Ok(())
+    }
+
+    #[test]
+    fn ser_host() -> Fallible<()> {
+        let expected = HOST_TOML;
+        let actual = toml::to_string(&(*HOST))?;
+        assert_eq!(expected, actual);
+        Ok(())
+    }
+
+    #[test]
+    fn de_hosts() -> Fallible<()> {
+        let actual: Hosts = toml::from_str(HOSTS_TOML)?;
+        assert_eq!(*HOSTS, actual);
+        Ok(())
+    }
+
+    #[test]
+    fn ser_hosts() -> Fallible<()> {
+        let expected = HOSTS_TOML;
+        let actual = toml::to_string(&(*HOSTS))?;
+        assert_eq!(expected, actual);
+        Ok(())
+    }
+
+    #[test]
+    fn de_mussh() -> Fallible<()> {
+        let actual: Mussh = toml::from_str(MUSSH_TOML)?;
+        assert_eq!(*MUSSH, actual);
+        Ok(())
+    }
+
+    #[test]
+    fn ser_mussh() -> Fallible<()> {
+        let expected = MUSSH_TOML;
+        let actual = toml::to_string(&(*MUSSH))?;
         assert_eq!(expected, actual);
         Ok(())
     }
