@@ -7,9 +7,9 @@
 // modified, or distributed except according to those terms.
 
 //! Multiplex commands over hosts.
-use clap::ArgMatches;
 use crate::config::Mussh;
 use crate::utils::{self, CmdType, HostType};
+use clap::ArgMatches;
 use getset::{Getters, Setters};
 use indexmap::IndexSet;
 
@@ -109,9 +109,9 @@ impl Multiplex {
 #[cfg(test)]
 mod tests {
     use super::Multiplex;
-    use clap::{App, Arg};
     use crate::config::Mussh;
     use crate::utils::{as_set, CmdType, HostType};
+    use clap::{App, Arg};
     use failure::Fallible;
 
     const MUSSH_TOML: &str = r#"[hostlist.most]
