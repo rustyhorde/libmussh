@@ -12,6 +12,24 @@ use indexmap::IndexSet;
 use std::hash::Hash;
 use std::iter::FromIterator;
 
+crate enum HostType {
+    Host,
+    SyncHost,
+}
+
+crate enum CmdType {
+    Cmd,
+    SyncCmd,
+}
+
+crate fn unwanted_host(host: &str) -> Option<String> {
+    if host.starts_with('!') {
+        Some((*host).split_at(1).1.to_string())
+    } else {
+        None
+    }
+}
+
 /// Convert an iter of item into a ordered set.
 pub fn as_set<S, T>(iter: T) -> IndexSet<S>
 where

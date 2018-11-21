@@ -6,8 +6,10 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
+use crate::utils;
 use failure::{Error, Fallible};
 use getset::Getters;
+use indexmap::IndexSet;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
@@ -17,7 +19,7 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize)]
 /// The base configuration.
-crate struct Mussh {
+pub struct Mussh {
     /// A list of hosts.
     #[serde(serialize_with = "toml::ser::tables_last")]
     #[get = "pub"]
@@ -30,6 +32,22 @@ crate struct Mussh {
     #[serde(serialize_with = "toml::ser::tables_last")]
     #[get = "pub"]
     cmd: BTreeMap<String, Command>,
+}
+
+impl Mussh {
+    crate fn hostnames(&self, host: &str) -> Vec<String> {
+        self.hostlist()
+            .get(host)
+            .map_or_else(|| vec![], |hosts| hosts.hostnames().clone())
+    }
+
+    crate fn configured_hostlists(&self) -> IndexSet<String> {
+        utils::as_set(self.hostlist().keys().cloned())
+    }
+
+    crate fn configured_cmds(&self) -> IndexSet<String> {
+        utils::as_set(self.cmd().keys().cloned())
+    }
 }
 
 impl TryFrom<PathBuf> for Mussh {
@@ -45,7 +63,7 @@ impl TryFrom<PathBuf> for Mussh {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize)]
 /// hosts configuration
-crate struct Hosts {
+pub struct Hosts {
     /// The hostnames.
     #[get = "pub"]
     hostnames: Vec<String>,
@@ -53,7 +71,7 @@ crate struct Hosts {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize)]
 /// Host configuration.
-crate struct Host {
+pub struct Host {
     /// A hostname.
     #[get = "pub"]
     hostname: String,
@@ -73,7 +91,7 @@ crate struct Host {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize)]
 /// command configuration
-crate struct Command {
+pub struct Command {
     /// A Command.
     #[get = "pub"]
     command: String,
@@ -81,7 +99,7 @@ crate struct Command {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize)]
 /// command alias configuration.
-crate struct Alias {
+pub struct Alias {
     /// A command alias.
     #[get = "pub"]
     command: String,

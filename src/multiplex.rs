@@ -8,7 +8,8 @@
 
 //! Multiplex commands over hosts.
 use clap::ArgMatches;
-use crate::utils;
+use crate::config::Mussh;
+use crate::utils::{self, CmdType, HostType};
 use getset::{Getters, Setters};
 use indexmap::IndexSet;
 
@@ -16,14 +17,18 @@ use indexmap::IndexSet;
 #[derive(Clone, Debug, Default, Getters, Eq, PartialEq, Setters)]
 pub struct Multiplex {
     /// Hosts
+    #[get = "pub"]
     hosts: IndexSet<String>,
     /// Host that need to complete `sync_commands` before run on
     /// other hosts
+    #[get = "pub"]
     sync_hosts: IndexSet<String>,
     /// Commands
+    #[get = "pub"]
     commands: IndexSet<String>,
-    ///s Commands that need to be run on `sync_hosts` before run
+    /// Commands that need to be run on `sync_hosts` before run
     /// on other hosts
+    #[get = "pub"]
     sync_commands: IndexSet<String>,
 }
 
@@ -54,12 +59,96 @@ impl<'a> From<&'a ArgMatches<'a>> for Multiplex {
     }
 }
 
+impl Multiplex {
+    fn requested(&self, cmd_type: &CmdType) -> IndexSet<String> {
+        let cmds = match cmd_type {
+            CmdType::Cmd => self.commands(),
+            CmdType::SyncCmd => self.sync_commands(),
+        };
+        utils::as_set(cmds.iter().cloned())
+    }
+    fn expanded(&self, config: &Mussh, host_type: &HostType) -> IndexSet<String> {
+        let hosts = match host_type {
+            HostType::Host => self.hosts(),
+            HostType::SyncHost => self.sync_hosts(),
+        };
+        utils::as_set(hosts.iter().flat_map(|host| config.hostnames(host)))
+    }
+
+    fn unwanted(&self, host_type: &HostType) -> IndexSet<String> {
+        let hosts = match host_type {
+            HostType::Host => self.hosts(),
+            HostType::SyncHost => self.sync_hosts(),
+        };
+        utils::as_set(hosts.iter().filter_map(|host| utils::unwanted_host(host)))
+    }
+
+    fn actual_hosts(&self, config: &Mussh, host_type: &HostType) -> IndexSet<String> {
+        let mut expanded = self.expanded(config, host_type);
+        let unwanted = self.unwanted(host_type);
+        expanded.retain(|x| !unwanted.contains(x));
+        let configured = config.configured_hostlists();
+        expanded.intersection(&configured).cloned().collect()
+    }
+
+    fn actual_cmds(&self, config: &Mussh, cmd_type: &CmdType) -> IndexSet<String> {
+        let requested = self.requested(cmd_type);
+        let configured = config.configured_cmds();
+        requested.intersection(&configured).cloned().collect()
+    }
+
+    /// Multiplex the requested commands over the requested hosts
+    pub fn multiplex(&self, config: &Mussh) {
+        let _actual_hosts = self.actual_hosts(config, &HostType::Host);
+        let _sync_hosts = self.actual_hosts(config, &HostType::SyncHost);
+        let _actual_cmds = self.actual_cmds(config, &CmdType::Cmd);
+        let _actual_sync_cmds = self.actual_cmds(config, &CmdType::SyncCmd);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Multiplex;
     use clap::{App, Arg};
-    use crate::utils::as_set;
+    use crate::config::Mussh;
+    use crate::utils::{as_set, CmdType, HostType};
     use failure::Fallible;
+
+    const MUSSH_TOML: &str = r#"[hostlist.most]
+hostnames = ["m1", "m2", "m3", "m4"]
+[hostlist.m1]
+hostnames = ["m1"]
+[hostlist.m2]
+hostnames = ["m2"]
+[hostlist.m3]
+hostnames = ["m3"]
+[hostlist.m4]
+hostnames = ["m4"]
+[hosts.m1]
+hostname = "10.0.0.3"
+username = "jozias"
+
+[[hosts.m1.alias]]
+command = "blah"
+aliasfor = "dedah"
+
+[hosts.m2]
+hostname = "10.0.0.4"
+username = "jozias"
+
+[hosts.m3]
+hostname = "10.0.0.5"
+username = "jozias"
+
+[hosts.m4]
+hostname = "10.0.0.60"
+username = "jozias"
+
+[cmd.ls]
+command = "ls -al"
+[cmd.uname]
+command = "uname -a"
+"#;
 
     fn test_cli<'a, 'b>() -> App<'a, 'b> {
         App::new(env!("CARGO_PKG_NAME"))
@@ -149,4 +238,47 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn correct_hosts() -> Fallible<()> {
+        let config: Mussh = toml::from_str(&MUSSH_TOML)?;
+        let cli = vec![
+            "test", "-h", "most,!m4", "-c", "ls", "-s", "m1,m2", "-y", "uname",
+        ];
+        let matches = test_cli().get_matches_from_safe(cli)?;
+        let multiplex = Multiplex::from(&matches);
+
+        let expected_hosts = as_set(
+            vec!["m1", "m2", "m3"]
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>(),
+        );
+        let expected_sync_hosts = as_set(
+            vec!["m1", "m2"]
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>(),
+        );
+        let expected_cmds = as_set(
+            vec!["ls"]
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>(),
+        );
+        let expected_sync_cmds = as_set(
+            vec!["uname"]
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>(),
+        );
+        let actual_hosts = multiplex.actual_hosts(&config, &HostType::Host);
+        let actual_sync_hosts = multiplex.actual_hosts(&config, &HostType::SyncHost);
+        let actual_cmds = multiplex.actual_cmds(&config, &CmdType::Cmd);
+        let actual_sync_cmds = multiplex.actual_cmds(&config, &CmdType::SyncCmd);
+        assert_eq!(expected_hosts, actual_hosts);
+        assert_eq!(expected_sync_hosts, actual_sync_hosts);
+        assert_eq!(expected_cmds, actual_cmds);
+        assert_eq!(expected_sync_cmds, actual_sync_cmds);
+        Ok(())
+    }
 }
