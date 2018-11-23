@@ -151,8 +151,8 @@ command = "uname -a"
 "#;
 
     macro_rules! string_set {
-        ($v:expr) => {
-            as_set($v.iter().map(|v| v.to_string()).collect::<Vec<String>>())
+        ( $( $x:expr ),* )  => {
+            as_set(vec![$($x),*].iter().map(|v| v.to_string()).collect::<Vec<String>>())
         };
     }
 
@@ -187,7 +187,7 @@ command = "uname -a"
     #[test]
     fn hosts_from_cli() -> Fallible<()> {
         let mut expected = Multiplex::default();
-        expected.hosts = string_set!(vec!["m1", "m2", "m3"]);
+        expected.hosts = string_set!("m1", "m2", "m3");
         let cli = vec!["test", "-h", "m1,m2,m3,m1,m3"];
         let matches = test_cli().get_matches_from_safe(cli)?;
 
@@ -198,7 +198,7 @@ command = "uname -a"
     #[test]
     fn sync_hosts_from_cli() -> Fallible<()> {
         let mut expected = Multiplex::default();
-        expected.sync_hosts = string_set!(vec!["m1", "m2", "m3"]);
+        expected.sync_hosts = string_set!("m1", "m2", "m3");
         let cli = vec!["test", "-s", "m1,m2,m3,m1,m3"];
         let matches = test_cli().get_matches_from_safe(cli)?;
         assert_eq!(Multiplex::from(&matches), expected);
@@ -208,7 +208,7 @@ command = "uname -a"
     #[test]
     fn commands_from_cli() -> Fallible<()> {
         let mut expected = Multiplex::default();
-        expected.commands = string_set!(vec!["foo", "bar", "baz"]);
+        expected.commands = string_set!("foo", "bar", "baz");
         let cli = vec!["test", "-c", "foo,bar,foo,foo,baz,bar"];
         let matches = test_cli().get_matches_from_safe(cli)?;
         assert_eq!(Multiplex::from(&matches), expected);
@@ -218,7 +218,7 @@ command = "uname -a"
     #[test]
     fn sync_commands_from_cli() -> Fallible<()> {
         let mut expected = Multiplex::default();
-        expected.sync_commands = string_set!(vec!["foo", "bar", "baz"]);
+        expected.sync_commands = string_set!("foo", "bar", "baz");
         let cli = vec!["test", "-y", "foo,bar,foo,foo,baz,bar"];
         let matches = test_cli().get_matches_from_safe(cli)?;
         assert_eq!(Multiplex::from(&matches), expected);
@@ -234,10 +234,10 @@ command = "uname -a"
         let matches = test_cli().get_matches_from_safe(cli)?;
         let multiplex = Multiplex::from(&matches);
 
-        let expected_hosts = string_set!(vec!["m1", "m2", "m3"]);
-        let expected_sync_hosts = string_set!(vec!["m1", "m2"]);
-        let expected_cmds = string_set!(vec!["ls"]);
-        let expected_sync_cmds = string_set!(vec!["uname"]);
+        let expected_hosts = string_set!("m1", "m2", "m3");
+        let expected_sync_hosts = string_set!("m1", "m2");
+        let expected_cmds = string_set!("ls");
+        let expected_sync_cmds = string_set!("uname");
         let actual_hosts = multiplex.actual_hosts(&config, &HostType::Host);
         let actual_sync_hosts = multiplex.actual_hosts(&config, &HostType::SyncHost);
         let actual_cmds = multiplex.actual_cmds(&config, &CmdType::Cmd);
