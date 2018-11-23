@@ -130,7 +130,7 @@ username = "jozias"
 
 [[hosts.m1.alias]]
 command = "blah"
-aliasfor = "dedah"
+aliasfor = "ls"
 
 [hosts.m2]
 hostname = "10.0.0.4"
@@ -149,6 +149,12 @@ command = "ls -al"
 [cmd.uname]
 command = "uname -a"
 "#;
+
+    macro_rules! string_set {
+        ($v:expr) => {
+            as_set($v.iter().map(|v| v.to_string()).collect::<Vec<String>>())
+        };
+    }
 
     fn test_cli<'a, 'b>() -> App<'a, 'b> {
         App::new(env!("CARGO_PKG_NAME"))
@@ -181,14 +187,10 @@ command = "uname -a"
     #[test]
     fn hosts_from_cli() -> Fallible<()> {
         let mut expected = Multiplex::default();
-        expected.hosts = as_set(
-            vec!["m1", "m2", "m3"]
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<String>>(),
-        );
+        expected.hosts = string_set!(vec!["m1", "m2", "m3"]);
         let cli = vec!["test", "-h", "m1,m2,m3,m1,m3"];
         let matches = test_cli().get_matches_from_safe(cli)?;
+
         assert_eq!(Multiplex::from(&matches), expected);
         Ok(())
     }
@@ -196,12 +198,7 @@ command = "uname -a"
     #[test]
     fn sync_hosts_from_cli() -> Fallible<()> {
         let mut expected = Multiplex::default();
-        expected.sync_hosts = as_set(
-            vec!["m1", "m2", "m3"]
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<String>>(),
-        );
+        expected.sync_hosts = string_set!(vec!["m1", "m2", "m3"]);
         let cli = vec!["test", "-s", "m1,m2,m3,m1,m3"];
         let matches = test_cli().get_matches_from_safe(cli)?;
         assert_eq!(Multiplex::from(&matches), expected);
@@ -211,12 +208,7 @@ command = "uname -a"
     #[test]
     fn commands_from_cli() -> Fallible<()> {
         let mut expected = Multiplex::default();
-        expected.commands = as_set(
-            vec!["foo", "bar", "baz"]
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<String>>(),
-        );
+        expected.commands = string_set!(vec!["foo", "bar", "baz"]);
         let cli = vec!["test", "-c", "foo,bar,foo,foo,baz,bar"];
         let matches = test_cli().get_matches_from_safe(cli)?;
         assert_eq!(Multiplex::from(&matches), expected);
@@ -226,12 +218,7 @@ command = "uname -a"
     #[test]
     fn sync_commands_from_cli() -> Fallible<()> {
         let mut expected = Multiplex::default();
-        expected.sync_commands = as_set(
-            vec!["foo", "bar", "baz"]
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<String>>(),
-        );
+        expected.sync_commands = string_set!(vec!["foo", "bar", "baz"]);
         let cli = vec!["test", "-y", "foo,bar,foo,foo,baz,bar"];
         let matches = test_cli().get_matches_from_safe(cli)?;
         assert_eq!(Multiplex::from(&matches), expected);
@@ -247,30 +234,10 @@ command = "uname -a"
         let matches = test_cli().get_matches_from_safe(cli)?;
         let multiplex = Multiplex::from(&matches);
 
-        let expected_hosts = as_set(
-            vec!["m1", "m2", "m3"]
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<String>>(),
-        );
-        let expected_sync_hosts = as_set(
-            vec!["m1", "m2"]
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<String>>(),
-        );
-        let expected_cmds = as_set(
-            vec!["ls"]
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<String>>(),
-        );
-        let expected_sync_cmds = as_set(
-            vec!["uname"]
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<String>>(),
-        );
+        let expected_hosts = string_set!(vec!["m1", "m2", "m3"]);
+        let expected_sync_hosts = string_set!(vec!["m1", "m2"]);
+        let expected_cmds = string_set!(vec!["ls"]);
+        let expected_sync_cmds = string_set!(vec!["uname"]);
         let actual_hosts = multiplex.actual_hosts(&config, &HostType::Host);
         let actual_sync_hosts = multiplex.actual_hosts(&config, &HostType::SyncHost);
         let actual_cmds = multiplex.actual_cmds(&config, &CmdType::Cmd);
