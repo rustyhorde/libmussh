@@ -39,12 +39,12 @@
     unused_results,
     variant_size_differences
 )]
-#![allow(clippy::stutter)]
+#![allow(clippy::module_name_repetitions)]
 #![doc(html_root_url = "https://docs.rs/libmussh/0.1.0")]
 
 mod config;
-mod multiplex;
+mod ssh;
 mod utils;
 
-pub use self::multiplex::Multiplex;
+pub use self::ssh::Multiplex;
 pub use self::utils::as_set;

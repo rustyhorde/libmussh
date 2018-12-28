@@ -61,5 +61,4 @@ mod test {
         let actual = vec!["one", "three", "three", "two", "one", "two", "two"];
         assert_eq!(as_set(actual), expected);
     }
-
 }
