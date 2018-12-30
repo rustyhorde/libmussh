@@ -9,17 +9,33 @@
 //! utilities
 use clap::Values;
 use indexmap::IndexSet;
+use std::fmt;
 use std::hash::Hash;
 use std::iter::FromIterator;
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 crate enum HostType {
     Host,
     SyncHost,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 crate enum CmdType {
     Cmd,
     SyncCmd,
+}
+
+impl fmt::Display for CmdType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                CmdType::Cmd => "cmd",
+                CmdType::SyncCmd => "sync_cmd",
+            }
+        )
+    }
 }
 
 crate fn unwanted_host(host: &str) -> Option<String> {

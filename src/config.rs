@@ -8,7 +8,7 @@
 
 use crate::utils;
 use failure::{Error, Fallible};
-use getset::Getters;
+use getset::{Getters, Setters};
 use indexmap::IndexSet;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -69,11 +69,12 @@ pub struct Hosts {
     hostnames: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize, Setters)]
 /// Host configuration.
 pub struct Host {
     /// A hostname.
     #[get = "pub"]
+    #[set = "pub"]
     hostname: String,
     /// A pem key.
     #[get = "pub"]
@@ -83,28 +84,33 @@ pub struct Host {
     port: Option<u16>,
     /// A username.
     #[get = "pub"]
+    #[set = "pub"]
     username: String,
     /// A command alias.
     #[get = "pub"]
+    #[set = "pub"]
     alias: Option<Vec<Alias>>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize, Setters)]
 /// command configuration
 pub struct Command {
     /// A Command.
     #[get = "pub"]
+    #[set = "pub"]
     command: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize, Setters)]
 /// command alias configuration.
 pub struct Alias {
     /// A command alias.
     #[get = "pub"]
+    #[set = "pub"]
     command: String,
     /// The command this is an alias for.
     #[get = "pub"]
+    #[set = "pub"]
     aliasfor: String,
 }
 
