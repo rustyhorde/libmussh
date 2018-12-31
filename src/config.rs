@@ -6,10 +6,11 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
-use crate::utils;
+use crate::utils::{self, CmdType, HostsMapType};
+use clap::ArgMatches;
 use failure::{Error, Fallible};
 use getset::{Getters, Setters};
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
@@ -41,12 +42,145 @@ impl Mussh {
             .map_or_else(|| vec![], |hosts| hosts.hostnames().clone())
     }
 
-    crate fn configured_hostlists(&self) -> IndexSet<String> {
+    fn configured_hostlists(&self) -> IndexSet<String> {
         utils::as_set(self.hostlist().keys().cloned())
     }
 
     crate fn configured_cmds(&self) -> IndexSet<String> {
         utils::as_set(self.cmd().keys().cloned())
+    }
+
+    fn requested(&self, commands: &IndexSet<String>) -> IndexSet<String> {
+        utils::as_set(commands.iter().cloned())
+    }
+
+    fn expanded(&self, hosts: &IndexSet<String>) -> IndexSet<String> {
+        utils::as_set(hosts.iter().flat_map(|host| self.hostnames(host)))
+    }
+
+    fn unwanted(&self, hosts: &IndexSet<String>) -> IndexSet<String> {
+        utils::as_set(hosts.iter().filter_map(|host| utils::unwanted_host(host)))
+    }
+
+    fn host_tuple(&self, hostname: &str) -> Option<(String, Host)> {
+        self.hosts()
+            .get(hostname)
+            .and_then(|host| Some((hostname.to_string(), host.clone())))
+    }
+
+    fn cmd_tuple(&self, cmd_name: &str) -> Option<(String, Command)> {
+        self.cmd()
+            .get(cmd_name)
+            .and_then(|cmd| Some((cmd_name.to_string(), cmd.clone())))
+    }
+
+    fn actual_hosts(&self, hosts: &IndexSet<String>) -> IndexMap<String, Host> {
+        let mut expanded = self.expanded(hosts);
+        let unwanted = self.unwanted(hosts);
+        expanded.retain(|x| !unwanted.contains(x));
+        let configured = self.configured_hostlists();
+        expanded
+            .intersection(&configured)
+            .filter_map(|hostname| self.host_tuple(hostname))
+            .collect()
+    }
+
+    fn actual_cmds(&self, commands: &IndexSet<String>) -> IndexMap<String, Command> {
+        let requested = self.requested(commands);
+        let configured = self.configured_cmds();
+        requested
+            .intersection(&configured)
+            .filter_map(|cmd_name| self.cmd_tuple(cmd_name))
+            .collect()
+    }
+
+    fn actual_cmd_map(
+        &self,
+        target_host: &Host,
+        expected_cmds: &IndexMap<String, Command>,
+    ) -> IndexMap<String, String> {
+        expected_cmds
+            .iter()
+            .map(|(cmd_name, command)| self.cmd_map_tuple(command, cmd_name, target_host))
+            .collect()
+    }
+
+    fn cmd_map_tuple(&self, command: &Command, cmd_name: &str, host: &Host) -> (String, String) {
+        (
+            cmd_name.to_string(),
+            if let Some(alias_vec) = host.alias() {
+                let mut cmd = command.command().clone();
+                for alias in alias_vec {
+                    if alias.aliasfor() == cmd_name {
+                        if let Some(int_command) = self.cmd().get(alias.command()) {
+                            cmd = int_command.command().clone();
+                            break;
+                        }
+                    }
+                }
+                cmd
+            } else {
+                command.command().clone()
+            },
+        )
+    }
+
+    /// Create a host map suitable for use with multiples from this config, and
+    /// argument matches from clap.
+    pub fn to_host_map(&self, matches: &ArgMatches<'_>) -> HostsMapType {
+        let hosts = utils::as_set(
+            matches
+                .values_of("hosts")
+                .map_or_else(|| vec![], utils::map_vals),
+        );
+
+        let sync_hosts = utils::as_set(
+            matches
+                .values_of("sync_hosts")
+                .map_or_else(|| vec![], utils::map_vals),
+        );
+
+        let commands = utils::as_set(
+            matches
+                .values_of("commands")
+                .map_or_else(|| vec![], utils::map_vals),
+        );
+
+        let sync_commands = utils::as_set(
+            matches
+                .values_of("sync_commands")
+                .map_or_else(|| vec![], utils::map_vals),
+        );
+
+        let actual_hosts = self.actual_hosts(&hosts);
+        let actual_cmds = self.actual_cmds(&commands);
+        let actual_sync_hosts = self.actual_hosts(&sync_hosts);
+        let actual_sync_cmds = self.actual_cmds(&sync_commands);
+
+        let mut hosts_map = IndexMap::new();
+
+        for (hostname, host) in &actual_hosts {
+            let cmd_tuple = hosts_map.entry(hostname.clone()).or_insert((
+                host.clone(),
+                IndexMap::<CmdType, IndexMap<String, String>>::new(),
+            ));
+            let cmds = self.actual_cmd_map(host, &actual_cmds);
+            let sync_cmds = self.actual_cmd_map(host, &actual_sync_cmds);
+            let _ = cmd_tuple.1.insert(CmdType::Cmd, cmds);
+            let _ = cmd_tuple.1.insert(CmdType::SyncCmd, sync_cmds);
+        }
+
+        for (hostname, host) in &actual_sync_hosts {
+            let cmd_tuple = hosts_map
+                .entry(hostname.clone())
+                .or_insert((host.clone(), IndexMap::new()));
+            let cmds = self.actual_cmd_map(host, &actual_cmds);
+            let sync_cmds = self.actual_cmd_map(host, &actual_sync_cmds);
+            let _ = cmd_tuple.1.insert(CmdType::Cmd, cmds);
+            let _ = cmd_tuple.1.insert(CmdType::SyncCmd, sync_cmds);
+        }
+
+        hosts_map
     }
 }
 

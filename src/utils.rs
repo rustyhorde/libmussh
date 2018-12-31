@@ -7,20 +7,27 @@
 // modified, or distributed except according to those terms.
 
 //! utilities
+use crate::config::Host;
 use clap::Values;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use std::fmt;
 use std::hash::Hash;
 use std::iter::FromIterator;
 
+/// Type used by multiplex to run commands on hosts
+///
+/// This is a map of the following: Host Name -> (Host, Command Type -> (Command Name, Command))
+pub type HostsMapType = IndexMap<String, (Host, IndexMap<CmdType, IndexMap<String, String>>)>;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[allow(dead_code)]
 crate enum HostType {
     Host,
     SyncHost,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-crate enum CmdType {
+pub enum CmdType {
     Cmd,
     SyncCmd,
 }

@@ -46,5 +46,6 @@ mod config;
 mod ssh;
 mod utils;
 
-pub use self::ssh::Multiplex;
-pub use self::utils::as_set;
+pub use self::config::Mussh;
+pub use self::ssh::multiplex;
+pub use self::utils::{as_set, HostsMapType};
