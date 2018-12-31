@@ -251,7 +251,10 @@ pub struct Alias {
 #[cfg(test)]
 mod test {
     use super::{Alias, Command, Host, Hosts, Mussh};
+    use crate::utils::{CmdType, HostsMapType};
+    use clap::{App, Arg};
     use failure::Fallible;
+    use indexmap::IndexMap;
     use lazy_static::lazy_static;
     use std::collections::BTreeMap;
 
@@ -287,15 +290,91 @@ aliasfor = "dedah"
 command = "blah"
 "#;
 
+    const MUSSH_FULL_TOML: &str = r#"[hostlist.most]
+hostnames = ["m1", "m2", "m3", "m4"]
+[hostlist.m1]
+hostnames = ["m1"]
+[hostlist.m2]
+hostnames = ["m2"]
+[hostlist.m3]
+hostnames = ["m3"]
+[hostlist.m4]
+hostnames = ["m4"]
+[hosts.m1]
+hostname = "10.0.0.3"
+username = "jozias"
+
+[[hosts.m1.alias]]
+command = "blah"
+aliasfor = "ls"
+
+[hosts.m2]
+hostname = "10.0.0.4"
+username = "jozias"
+
+[hosts.m3]
+hostname = "10.0.0.5"
+username = "jozias"
+
+[hosts.m4]
+hostname = "10.0.0.60"
+username = "jozias"
+
+[cmd.bar]
+command = "bar"
+[cmd.ls]
+command = "ls -al"
+[cmd.uname]
+command = "uname -a"
+"#;
+
+    // macro_rules! string_set {
+    //     ( $( $x:expr ),* )  => {
+    //         as_set(vec![$($x),*].iter().map(|v| v.to_string()).collect::<Vec<String>>())
+    //     };
+    // }
+
+    fn test_cli<'a, 'b>() -> App<'a, 'b> {
+        App::new(env!("CARGO_PKG_NAME"))
+            .arg(
+                Arg::with_name("hosts")
+                    .short("h")
+                    .long("hosts")
+                    .use_delimiter(true),
+            )
+            .arg(
+                Arg::with_name("commands")
+                    .short("c")
+                    .long("commands")
+                    .use_delimiter(true),
+            )
+            .arg(
+                Arg::with_name("sync_hosts")
+                    .short("s")
+                    .long("sync_hosts")
+                    .use_delimiter(true),
+            )
+            .arg(
+                Arg::with_name("sync_commands")
+                    .short("y")
+                    .long("sync_commands")
+                    .use_delimiter(true),
+            )
+    }
+
     lazy_static! {
         static ref ALIAS: Alias = Alias {
             command: "blah".to_string(),
             aliasfor: "dedah".to_string(),
         };
+        static ref ALIAS_1: Alias = Alias {
+            command: "blah".to_string(),
+            aliasfor: "ls".to_string(),
+        };
         static ref COMMAND: Command = Command {
             command: "blah".to_string(),
         };
-        static ref HOST: Host = {
+        static ref HOST_M1_DEF: Host = {
             let alias = ALIAS.clone();
             Host {
                 hostname: "10.0.0.3".to_string(),
@@ -305,6 +384,34 @@ command = "blah"
                 alias: Some(vec![alias]),
             }
         };
+        static ref HOST_M1: Host = {
+            let alias = ALIAS_1.clone();
+            Host {
+                hostname: "10.0.0.3".to_string(),
+                pem: None,
+                port: None,
+                username: "jozias".to_string(),
+                alias: Some(vec![alias]),
+            }
+        };
+        static ref HOST_M2: Host = {
+            Host {
+                hostname: "10.0.0.4".to_string(),
+                pem: None,
+                port: None,
+                username: "jozias".to_string(),
+                alias: None,
+            }
+        };
+        static ref HOST_M3: Host = {
+            Host {
+                hostname: "10.0.0.5".to_string(),
+                pem: None,
+                port: None,
+                username: "jozias".to_string(),
+                alias: None,
+            }
+        };
         static ref HOSTS: Hosts = Hosts {
             hostnames: vec!["m1".to_string(), "m2".to_string(), "m3".to_string()],
         };
@@ -312,7 +419,7 @@ command = "blah"
             let mut hostlist = BTreeMap::new();
             let _ = hostlist.insert("i686".to_string(), HOSTS.clone());
             let mut hosts = BTreeMap::new();
-            let _ = hosts.insert("m1".to_string(), HOST.clone());
+            let _ = hosts.insert("m1".to_string(), HOST_M1_DEF.clone());
             let mut cmd = BTreeMap::new();
             let _ = cmd.insert("ls".to_string(), COMMAND.clone());
             Mussh {
@@ -320,6 +427,32 @@ command = "blah"
                 hosts: hosts,
                 cmd: cmd,
             }
+        };
+        static ref EMPTY_CMD_MAP: IndexMap<CmdType, IndexMap<String, String>> = {
+            let mut cmd_map = IndexMap::new();
+            let _ = cmd_map.insert(CmdType::Cmd, IndexMap::new());
+            let _ = cmd_map.insert(CmdType::SyncCmd, IndexMap::new());
+            cmd_map
+        };
+        static ref ALL_CMD_MAP: IndexMap<CmdType, IndexMap<String, String>> = {
+            let mut cmd_map = IndexMap::new();
+            let mut cmds_map = IndexMap::new();
+            let _ = cmds_map.insert("ls".to_string(), "ls -al".to_string());
+            let _ = cmds_map.insert("uname".to_string(), "uname -a".to_string());
+            let _ = cmds_map.insert("bar".to_string(), "bar".to_string());
+            let _ = cmd_map.insert(CmdType::Cmd, cmds_map);
+            let _ = cmd_map.insert(CmdType::SyncCmd, IndexMap::new());
+            cmd_map
+        };
+        static ref SYNC_CMD_MAP: IndexMap<CmdType, IndexMap<String, String>> = {
+            let mut cmd_map = IndexMap::new();
+            let mut cmds_map = IndexMap::new();
+            let _ = cmds_map.insert("ls".to_string(), "ls -al".to_string());
+            let _ = cmds_map.insert("uname".to_string(), "uname -a".to_string());
+            let _ = cmds_map.insert("bar".to_string(), "bar".to_string());
+            let _ = cmd_map.insert(CmdType::Cmd, IndexMap::new());
+            let _ = cmd_map.insert(CmdType::SyncCmd, cmds_map);
+            cmd_map
         };
     }
 
@@ -356,14 +489,14 @@ command = "blah"
     #[test]
     fn de_host() -> Fallible<()> {
         let actual: Host = toml::from_str(HOST_TOML)?;
-        assert_eq!(*HOST, actual);
+        assert_eq!(*HOST_M1_DEF, actual);
         Ok(())
     }
 
     #[test]
     fn ser_host() -> Fallible<()> {
         let expected = HOST_TOML;
-        let actual = toml::to_string(&(*HOST))?;
+        let actual = toml::to_string(&(*HOST_M1_DEF))?;
         assert_eq!(expected, actual);
         Ok(())
     }
@@ -395,6 +528,58 @@ command = "blah"
         let expected = MUSSH_TOML;
         let actual = toml::to_string(&(*MUSSH))?;
         assert_eq!(expected, actual);
+        Ok(())
+    }
+
+    #[test]
+    fn hosts_from_cli() -> Fallible<()> {
+        let mut expected: HostsMapType = IndexMap::new();
+        let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), EMPTY_CMD_MAP.clone()));
+        let _ = expected.insert("m2".to_string(), (HOST_M2.clone(), EMPTY_CMD_MAP.clone()));
+        let _ = expected.insert("m3".to_string(), (HOST_M3.clone(), EMPTY_CMD_MAP.clone()));
+        let config: Mussh = toml::from_str(MUSSH_FULL_TOML)?;
+        let cli = vec!["test", "-h", "m1,m2,m3,m1,m3"];
+        let matches = test_cli().get_matches_from_safe(cli)?;
+
+        assert_eq!(config.to_host_map(&matches), expected);
+        Ok(())
+    }
+
+    #[test]
+    fn sync_hosts_from_cli() -> Fallible<()> {
+        let mut expected: HostsMapType = IndexMap::new();
+        let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), EMPTY_CMD_MAP.clone()));
+        let _ = expected.insert("m2".to_string(), (HOST_M2.clone(), EMPTY_CMD_MAP.clone()));
+        let _ = expected.insert("m3".to_string(), (HOST_M3.clone(), EMPTY_CMD_MAP.clone()));
+        let config: Mussh = toml::from_str(MUSSH_FULL_TOML)?;
+        let cli = vec!["test", "-s", "m1,m2,m3,m1,m3"];
+        let matches = test_cli().get_matches_from_safe(cli)?;
+
+        assert_eq!(config.to_host_map(&matches), expected);
+        Ok(())
+    }
+
+    #[test]
+    fn commands_from_cli() -> Fallible<()> {
+        let mut expected: HostsMapType = IndexMap::new();
+        let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), ALL_CMD_MAP.clone()));
+        let config: Mussh = toml::from_str(MUSSH_FULL_TOML)?;
+        let cli = vec!["test", "-h", "m1", "-c", "ls,uname,bar,bar,ls,uname,bar"];
+        let matches = test_cli().get_matches_from_safe(cli)?;
+
+        assert_eq!(config.to_host_map(&matches), expected);
+        Ok(())
+    }
+
+    #[test]
+    fn sync_commands_from_cli() -> Fallible<()> {
+        let mut expected: HostsMapType = IndexMap::new();
+        let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), SYNC_CMD_MAP.clone()));
+        let config: Mussh = toml::from_str(MUSSH_FULL_TOML)?;
+        let cli = vec!["test", "-h", "m1", "-y", "ls,uname,bar,bar,ls,uname,bar"];
+        let matches = test_cli().get_matches_from_safe(cli)?;
+
+        assert_eq!(config.to_host_map(&matches), expected);
         Ok(())
     }
 }
