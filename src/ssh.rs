@@ -15,6 +15,7 @@ use indexmap::{IndexMap, IndexSet};
 use slog::{error, info, trace, Logger};
 use slog_try::{try_error, try_info, try_trace};
 use ssh2::Session;
+use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
@@ -49,7 +50,7 @@ pub struct Multiplex {
     /// command output logging
     #[get = "pub"]
     #[set = "pub"]
-    cmd: Option<Logger>,
+    host_loggers: HashMap<String, Option<Logger>>,
 }
 
 impl Multiplex {
@@ -90,7 +91,7 @@ impl Multiplex {
                 let h_cl = host.clone();
                 let stdout_cl = self.stdout.clone();
                 let stderr_cl = self.stderr.clone();
-                let cmd_cl = self.cmd.clone();
+                let cmd_cl = self.host_loggers.get(&hostname).unwrap_or(&None).clone();
 
                 // The worker thread that will run the commands on the host
                 let _ = thread::spawn(move || {
