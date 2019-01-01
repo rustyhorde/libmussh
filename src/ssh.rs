@@ -183,10 +183,47 @@ fn execute_on_remote(_host: &Host, _cmd_name: &str, _cmd: &str) -> MusshResult<(
 #[cfg(test)]
 mod tests {
     use super::multiplex;
-    use crate::config::test::{test_cli, MUSSH_FULL_TOML};
+    use crate::config::test::test_cli;
     use crate::config::{HostsCmds, Mussh};
     use crate::error::MusshResult;
-    use indexmap::IndexSet;
+
+        crate const MUSSH_FULL_TOML: &str = r#"[hostlist.most]
+hostnames = ["m1", "m2", "m3", "m4"]
+[hostlist.m1]
+hostnames = ["m1"]
+[hostlist.m2]
+hostnames = ["m2"]
+[hostlist.m3]
+hostnames = ["m3"]
+[hostlist.m4]
+hostnames = ["m4"]
+[hosts.m1]
+hostname = "localhost"
+username = "jozias"
+
+[[hosts.m1.alias]]
+command = "ls.mac"
+aliasfor = "ls"
+
+[hosts.m2]
+hostname = "localhost"
+username = "jozias"
+
+[hosts.m3]
+hostname = "localhost"
+username = "jozias"
+
+[hosts.m4]
+hostname = "localhost"
+username = "jozias"
+
+[cmd.bar]
+command = "sleep 1"
+[cmd.ls]
+command = "ls -al"
+[cmd.uname]
+command = "uname -a"
+"#;
 
     #[test]
     fn ssh_multiplex() -> MusshResult<()> {
@@ -197,7 +234,7 @@ mod tests {
         let matches = test_cli().get_matches_from_safe(cli)?;
         let hosts_cmds = HostsCmds::from(&matches);
         let hosts_map = config.to_host_map(&hosts_cmds);
-        let _ = multiplex(&IndexSet::new(), hosts_map);
+        let _ = multiplex(hosts_cmds.sync_hosts(), hosts_map);
         Ok(())
     }
 }
