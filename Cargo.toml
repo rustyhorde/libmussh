@@ -6,12 +6,13 @@ edition = "2018"
 
 [dependencies]
 clap = "2"
-crossbeam = "0"
-failure = "0"
 getset = "0"
 indexmap = "1"
-lazy_static = "1"
 serde = "1"
 serde_derive = "1"
 toml = "0"
 wait_group = "0"
+
+[dependencies.lazy_static]
+version = "1"
+features = ["nightly"]

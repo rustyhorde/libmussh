@@ -43,9 +43,11 @@
 #![doc(html_root_url = "https://docs.rs/libmussh/0.1.0")]
 
 mod config;
+mod error;
 mod ssh;
 mod utils;
 
-pub use self::config::Mussh;
+pub use self::config::{HostsCmds, Mussh};
+pub use self::error::{MusshError, MusshResult};
 pub use self::ssh::multiplex;
 pub use self::utils::{as_set, HostsMapType};

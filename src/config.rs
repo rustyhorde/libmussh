@@ -6,9 +6,9 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
+use crate::error::{MusshError, MusshResult};
 use crate::utils::{self, CmdType, HostsMapType};
 use clap::ArgMatches;
-use failure::{Error, Fallible};
 use getset::{Getters, Setters};
 use indexmap::{IndexMap, IndexSet};
 use serde_derive::{Deserialize, Serialize};
@@ -17,6 +17,59 @@ use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
+
+/// The set of hosts and commands to run
+#[derive(Clone, Debug, Default, Eq, Getters, PartialEq, Setters)]
+pub struct HostsCmds {
+    /// The set of hosts to run the commands on
+    #[get = "pub"]
+    #[set = "pub"]
+    hosts: IndexSet<String>,
+    /// The set of hosts to run the sync commands on first
+    #[get = "pub"]
+    #[set = "pub"]
+    sync_hosts: IndexSet<String>,
+    /// The set of commands to run
+    #[get = "pub"]
+    #[set = "pub"]
+    cmds: IndexSet<String>,
+    /// The set of commands to run on sync hosts first, then
+    /// regular hosts once those have completed.
+    #[get = "pub"]
+    #[set = "pub"]
+    sync_cmds: IndexSet<String>,
+}
+
+impl From<&ArgMatches<'_>> for HostsCmds {
+    fn from(matches: &ArgMatches<'_>) -> Self {
+        let mut hosts_cmds = Self::default();
+        hosts_cmds.hosts = utils::as_set(
+            matches
+                .values_of("hosts")
+                .map_or_else(|| vec![], utils::map_vals),
+        );
+
+        hosts_cmds.sync_hosts = utils::as_set(
+            matches
+                .values_of("sync_hosts")
+                .map_or_else(|| vec![], utils::map_vals),
+        );
+
+        hosts_cmds.cmds = utils::as_set(
+            matches
+                .values_of("commands")
+                .map_or_else(|| vec![], utils::map_vals),
+        );
+
+        hosts_cmds.sync_cmds = utils::as_set(
+            matches
+                .values_of("sync_commands")
+                .map_or_else(|| vec![], utils::map_vals),
+        );
+
+        hosts_cmds
+    }
+}
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize)]
 /// The base configuration.
@@ -127,35 +180,11 @@ impl Mussh {
 
     /// Create a host map suitable for use with multiples from this config, and
     /// argument matches from clap.
-    pub fn to_host_map(&self, matches: &ArgMatches<'_>) -> HostsMapType {
-        let hosts = utils::as_set(
-            matches
-                .values_of("hosts")
-                .map_or_else(|| vec![], utils::map_vals),
-        );
-
-        let sync_hosts = utils::as_set(
-            matches
-                .values_of("sync_hosts")
-                .map_or_else(|| vec![], utils::map_vals),
-        );
-
-        let commands = utils::as_set(
-            matches
-                .values_of("commands")
-                .map_or_else(|| vec![], utils::map_vals),
-        );
-
-        let sync_commands = utils::as_set(
-            matches
-                .values_of("sync_commands")
-                .map_or_else(|| vec![], utils::map_vals),
-        );
-
-        let actual_hosts = self.actual_hosts(&hosts);
-        let actual_cmds = self.actual_cmds(&commands);
-        let actual_sync_hosts = self.actual_hosts(&sync_hosts);
-        let actual_sync_cmds = self.actual_cmds(&sync_commands);
+    pub fn to_host_map(&self, host_cmds: &HostsCmds) -> HostsMapType {
+        let actual_hosts = self.actual_hosts(host_cmds.hosts());
+        let actual_cmds = self.actual_cmds(host_cmds.cmds());
+        let actual_sync_hosts = self.actual_hosts(host_cmds.sync_hosts());
+        let actual_sync_cmds = self.actual_cmds(host_cmds.sync_cmds());
 
         let mut hosts_map = IndexMap::new();
 
@@ -185,9 +214,9 @@ impl Mussh {
 }
 
 impl TryFrom<PathBuf> for Mussh {
-    type Error = Error;
+    type Error = MusshError;
 
-    fn try_from(path: PathBuf) -> Fallible<Self> {
+    fn try_from(path: PathBuf) -> MusshResult<Self> {
         let mut buf_reader = BufReader::new(File::open(path)?);
         let mut buffer = String::new();
         let _bytes_read = buf_reader.read_to_string(&mut buffer)?;
@@ -249,11 +278,11 @@ pub struct Alias {
 }
 
 #[cfg(test)]
-mod test {
-    use super::{Alias, Command, Host, Hosts, Mussh};
+crate mod test {
+    use super::{Alias, Command, Host, Hosts, HostsCmds, Mussh};
+    use crate::error::MusshResult;
     use crate::utils::{CmdType, HostsMapType};
     use clap::{App, Arg};
-    use failure::Fallible;
     use indexmap::IndexMap;
     use lazy_static::lazy_static;
     use std::collections::BTreeMap;
@@ -290,7 +319,7 @@ aliasfor = "dedah"
 command = "blah"
 "#;
 
-    const MUSSH_FULL_TOML: &str = r#"[hostlist.most]
+    crate const MUSSH_FULL_TOML: &str = r#"[hostlist.most]
 hostnames = ["m1", "m2", "m3", "m4"]
 [hostlist.m1]
 hostnames = ["m1"]
@@ -305,7 +334,7 @@ hostname = "10.0.0.3"
 username = "jozias"
 
 [[hosts.m1.alias]]
-command = "blah"
+command = "ls.mac"
 aliasfor = "ls"
 
 [hosts.m2]
@@ -334,7 +363,7 @@ command = "uname -a"
     //     };
     // }
 
-    fn test_cli<'a, 'b>() -> App<'a, 'b> {
+    crate fn test_cli<'a, 'b>() -> App<'a, 'b> {
         App::new(env!("CARGO_PKG_NAME"))
             .arg(
                 Arg::with_name("hosts")
@@ -368,7 +397,7 @@ command = "uname -a"
             aliasfor: "dedah".to_string(),
         };
         static ref ALIAS_1: Alias = Alias {
-            command: "blah".to_string(),
+            command: "ls.mac".to_string(),
             aliasfor: "ls".to_string(),
         };
         static ref COMMAND: Command = Command {
@@ -457,14 +486,14 @@ command = "uname -a"
     }
 
     #[test]
-    fn de_alias() -> Fallible<()> {
+    fn de_alias() -> MusshResult<()> {
         let actual: Alias = toml::from_str(ALIAS_TOML)?;
         assert_eq!(*ALIAS, actual);
         Ok(())
     }
 
     #[test]
-    fn ser_alias() -> Fallible<()> {
+    fn ser_alias() -> MusshResult<()> {
         let expected = ALIAS_TOML;
         let actual = toml::to_string(&(*ALIAS))?;
         assert_eq!(expected, actual);
@@ -472,14 +501,14 @@ command = "uname -a"
     }
 
     #[test]
-    fn de_command() -> Fallible<()> {
+    fn de_command() -> MusshResult<()> {
         let actual: Command = toml::from_str(COMMAND_TOML)?;
         assert_eq!(*COMMAND, actual);
         Ok(())
     }
 
     #[test]
-    fn ser_command() -> Fallible<()> {
+    fn ser_command() -> MusshResult<()> {
         let expected = COMMAND_TOML;
         let actual = toml::to_string(&(*COMMAND))?;
         assert_eq!(expected, actual);
@@ -487,14 +516,14 @@ command = "uname -a"
     }
 
     #[test]
-    fn de_host() -> Fallible<()> {
+    fn de_host() -> MusshResult<()> {
         let actual: Host = toml::from_str(HOST_TOML)?;
         assert_eq!(*HOST_M1_DEF, actual);
         Ok(())
     }
 
     #[test]
-    fn ser_host() -> Fallible<()> {
+    fn ser_host() -> MusshResult<()> {
         let expected = HOST_TOML;
         let actual = toml::to_string(&(*HOST_M1_DEF))?;
         assert_eq!(expected, actual);
@@ -502,14 +531,14 @@ command = "uname -a"
     }
 
     #[test]
-    fn de_hosts() -> Fallible<()> {
+    fn de_hosts() -> MusshResult<()> {
         let actual: Hosts = toml::from_str(HOSTS_TOML)?;
         assert_eq!(*HOSTS, actual);
         Ok(())
     }
 
     #[test]
-    fn ser_hosts() -> Fallible<()> {
+    fn ser_hosts() -> MusshResult<()> {
         let expected = HOSTS_TOML;
         let actual = toml::to_string(&(*HOSTS))?;
         assert_eq!(expected, actual);
@@ -517,14 +546,14 @@ command = "uname -a"
     }
 
     #[test]
-    fn de_mussh() -> Fallible<()> {
+    fn de_mussh() -> MusshResult<()> {
         let actual: Mussh = toml::from_str(MUSSH_TOML)?;
         assert_eq!(*MUSSH, actual);
         Ok(())
     }
 
     #[test]
-    fn ser_mussh() -> Fallible<()> {
+    fn ser_mussh() -> MusshResult<()> {
         let expected = MUSSH_TOML;
         let actual = toml::to_string(&(*MUSSH))?;
         assert_eq!(expected, actual);
@@ -532,7 +561,7 @@ command = "uname -a"
     }
 
     #[test]
-    fn hosts_from_cli() -> Fallible<()> {
+    fn hosts_from_cli() -> MusshResult<()> {
         let mut expected: HostsMapType = IndexMap::new();
         let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), EMPTY_CMD_MAP.clone()));
         let _ = expected.insert("m2".to_string(), (HOST_M2.clone(), EMPTY_CMD_MAP.clone()));
@@ -540,13 +569,13 @@ command = "uname -a"
         let config: Mussh = toml::from_str(MUSSH_FULL_TOML)?;
         let cli = vec!["test", "-h", "m1,m2,m3,m1,m3"];
         let matches = test_cli().get_matches_from_safe(cli)?;
-
-        assert_eq!(config.to_host_map(&matches), expected);
+        let hosts_cmds = HostsCmds::from(&matches);
+        assert_eq!(config.to_host_map(&hosts_cmds), expected);
         Ok(())
     }
 
     #[test]
-    fn sync_hosts_from_cli() -> Fallible<()> {
+    fn sync_hosts_from_cli() -> MusshResult<()> {
         let mut expected: HostsMapType = IndexMap::new();
         let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), EMPTY_CMD_MAP.clone()));
         let _ = expected.insert("m2".to_string(), (HOST_M2.clone(), EMPTY_CMD_MAP.clone()));
@@ -554,32 +583,32 @@ command = "uname -a"
         let config: Mussh = toml::from_str(MUSSH_FULL_TOML)?;
         let cli = vec!["test", "-s", "m1,m2,m3,m1,m3"];
         let matches = test_cli().get_matches_from_safe(cli)?;
-
-        assert_eq!(config.to_host_map(&matches), expected);
+        let hosts_cmds = HostsCmds::from(&matches);
+        assert_eq!(config.to_host_map(&hosts_cmds), expected);
         Ok(())
     }
 
     #[test]
-    fn commands_from_cli() -> Fallible<()> {
+    fn commands_from_cli() -> MusshResult<()> {
         let mut expected: HostsMapType = IndexMap::new();
         let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), ALL_CMD_MAP.clone()));
         let config: Mussh = toml::from_str(MUSSH_FULL_TOML)?;
         let cli = vec!["test", "-h", "m1", "-c", "ls,uname,bar,bar,ls,uname,bar"];
         let matches = test_cli().get_matches_from_safe(cli)?;
-
-        assert_eq!(config.to_host_map(&matches), expected);
+        let hosts_cmds = HostsCmds::from(&matches);
+        assert_eq!(config.to_host_map(&hosts_cmds), expected);
         Ok(())
     }
 
     #[test]
-    fn sync_commands_from_cli() -> Fallible<()> {
+    fn sync_commands_from_cli() -> MusshResult<()> {
         let mut expected: HostsMapType = IndexMap::new();
         let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), SYNC_CMD_MAP.clone()));
         let config: Mussh = toml::from_str(MUSSH_FULL_TOML)?;
         let cli = vec!["test", "-h", "m1", "-y", "ls,uname,bar,bar,ls,uname,bar"];
         let matches = test_cli().get_matches_from_safe(cli)?;
-
-        assert_eq!(config.to_host_map(&matches), expected);
+        let hosts_cmds = HostsCmds::from(&matches);
+        assert_eq!(config.to_host_map(&hosts_cmds), expected);
         Ok(())
     }
 }

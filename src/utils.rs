@@ -13,6 +13,7 @@ use indexmap::{IndexMap, IndexSet};
 use std::fmt;
 use std::hash::Hash;
 use std::iter::FromIterator;
+use std::time::Duration;
 
 /// Type used by multiplex to run commands on hosts
 ///
@@ -64,6 +65,28 @@ where
 
 crate fn map_vals(values: Values<'_>) -> Vec<String> {
     values.map(|v| v.to_string()).collect()
+}
+
+crate fn convert_duration(duration: Duration) -> String {
+    let seconds = duration.as_secs();
+    let millis = duration.subsec_millis();
+    if seconds < 1 {
+        format!("00:00:00.{:03}", duration.as_millis())
+    } else if seconds < 60 {
+        format!("00:00:{:02}.{:03}", seconds, millis)
+    } else if seconds < 3600 {
+        let minutes = seconds / 60;
+        let seconds = seconds % 60;
+        format!("00:{:02}:{:02}.{:03}", minutes, seconds, millis)
+    } else if seconds < 86400 {
+        let total_minutes = seconds / 60;
+        let seconds = seconds % 60;
+        let hours = total_minutes / 60;
+        let minutes = total_minutes % 60;
+        format!("{}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis)
+    } else {
+        format!("{}s", seconds)
+    }
 }
 
 #[cfg(test)]
