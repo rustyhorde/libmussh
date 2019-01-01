@@ -187,7 +187,7 @@ mod tests {
     use crate::config::{HostsCmds, Mussh};
     use crate::error::MusshResult;
 
-        crate const MUSSH_FULL_TOML: &str = r#"[hostlist.most]
+    crate const MUSSH_FULL_TOML: &str = r#"[hostlist.most]
 hostnames = ["m1", "m2", "m3", "m4"]
 [hostlist.m1]
 hostnames = ["m1"]
