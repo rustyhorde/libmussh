@@ -1,8 +1,15 @@
 [package]
-name = "libmussh"
-version = "0.1.0"
-authors = ["Jason Ozias <jason.ozias@gmail.com>"]
+authors = ["Jason Ozias <jason.g.ozias@gmail.com>"]
+description = "SSH Multiplexer"
+documentation = "https://docs.rs/libmussh"
 edition = "2018"
+homepage = "https://github.com/rustyhorde/libmussh"
+keywords = ["ssh", "multiplex"]
+license = "MIT/Apache-2.0"
+name = "libmussh"
+readme = "README.md"
+repository = "https://github.com/rustyhorde/libmussh"
+version = "0.1.0"
 
 [dependencies]
 clap = "2"
@@ -10,9 +17,15 @@ getset = "0"
 indexmap = "1"
 serde = "1"
 serde_derive = "1"
+slog-try = "0"
 toml = "0"
 wait_group = "0"
+ssh2 = "0"
 
 [dependencies.lazy_static]
 version = "1"
 features = ["nightly"]
+
+[dependencies.slog]
+features = ["max_level_trace", "release_max_level_trace"]
+version = "2"

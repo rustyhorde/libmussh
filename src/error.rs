@@ -1,17 +1,17 @@
 use std::error::Error;
 use std::fmt;
 
-/// A result that includes a `MusshError`
-pub type MusshResult<T> = Result<T, MusshError>;
+/// A result that includes a `mussh::Error`
+pub type MusshResult<T> = Result<T, MusshErr>;
 
 /// An error thrown by the mussh library
 #[derive(Debug)]
-pub struct MusshError {
+pub struct MusshErr {
     /// The kind of error
-    inner: MusshErrorKind,
+    inner: MusshErrKind,
 }
 
-impl Error for MusshError {
+impl Error for MusshErr {
     fn description(&self) -> &str {
         "Mussh Error"
     }
@@ -21,7 +21,7 @@ impl Error for MusshError {
     }
 }
 
-impl fmt::Display for MusshError {
+impl fmt::Display for MusshErr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.description())?;
 
@@ -32,90 +32,79 @@ impl fmt::Display for MusshError {
     }
 }
 
-impl From<MusshErrorKind> for MusshError {
-    fn from(inner: MusshErrorKind) -> Self {
+macro_rules! external_error {
+    ($error:ty, $kind:expr) => {
+        impl From<$error> for MusshErr {
+            fn from(inner: $error) -> Self {
+                Self {
+                    inner: $kind(inner),
+                }
+            }
+        }
+    };
+}
+
+impl From<MusshErrKind> for MusshErr {
+    fn from(inner: MusshErrKind) -> Self {
         Self { inner }
     }
 }
 
-impl From<&str> for MusshError {
+impl From<&str> for MusshErr {
     fn from(inner: &str) -> Self {
         Self {
-            inner: MusshErrorKind::Str(inner.to_string()),
+            inner: MusshErrKind::Str(inner.to_string()),
         }
     }
 }
 
-impl From<std::io::Error> for MusshError {
-    fn from(inner: std::io::Error) -> Self {
-        Self {
-            inner: MusshErrorKind::Io(inner),
-        }
-    }
-}
-
-impl From<toml::de::Error> for MusshError {
-    fn from(inner: toml::de::Error) -> Self {
-        Self {
-            inner: MusshErrorKind::TomlDe(inner),
-        }
-    }
-}
-
-impl From<toml::ser::Error> for MusshError {
-    fn from(inner: toml::ser::Error) -> Self {
-        Self {
-            inner: MusshErrorKind::TomlSer(inner),
-        }
-    }
-}
-
-impl From<clap::Error> for MusshError {
-    fn from(inner: clap::Error) -> Self {
-        Self {
-            inner: MusshErrorKind::Clap(inner),
-        }
-    }
-}
+external_error!(clap::Error, MusshErrKind::Clap);
+external_error!(ssh2::Error, MusshErrKind::Ssh2);
+external_error!(std::io::Error, MusshErrKind::Io);
+external_error!(toml::de::Error, MusshErrKind::TomlDe);
+external_error!(toml::ser::Error, MusshErrKind::TomlSer);
 
 #[derive(Debug)]
-crate enum MusshErrorKind {
+crate enum MusshErrKind {
     Clap(clap::Error),
     Io(std::io::Error),
     SshSession,
     SshAuthentication,
     ShellNotFound,
+    Ssh2(ssh2::Error),
     Str(String),
     TomlDe(toml::de::Error),
     TomlSer(toml::ser::Error),
 }
 
-impl Error for MusshErrorKind {
+impl Error for MusshErrKind {
     fn description(&self) -> &str {
         match self {
-            MusshErrorKind::Clap(inner) => inner.description(),
-            MusshErrorKind::Io(inner) => inner.description(),
-            MusshErrorKind::SshAuthentication => "ssh authentication",
-            MusshErrorKind::SshSession => "ssh session",
-            MusshErrorKind::ShellNotFound => "no acceptable shell found",
-            MusshErrorKind::Str(inner) => &inner[..],
-            MusshErrorKind::TomlDe(inner) => inner.description(),
-            MusshErrorKind::TomlSer(inner) => inner.description(),
+            MusshErrKind::Clap(inner) => inner.description(),
+            MusshErrKind::Io(inner) => inner.description(),
+            MusshErrKind::SshAuthentication => "ssh authentication",
+            MusshErrKind::SshSession => "ssh session",
+            MusshErrKind::ShellNotFound => "no acceptable shell found",
+            MusshErrKind::Ssh2(inner) => inner.description(),
+            MusshErrKind::Str(inner) => &inner[..],
+            MusshErrKind::TomlDe(inner) => inner.description(),
+            MusshErrKind::TomlSer(inner) => inner.description(),
         }
     }
 
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            MusshErrorKind::Clap(inner) => inner.source(),
-            MusshErrorKind::Io(inner) => inner.source(),
-            MusshErrorKind::TomlDe(inner) => inner.source(),
-            MusshErrorKind::TomlSer(inner) => inner.source(),
+            MusshErrKind::Clap(inner) => inner.source(),
+            MusshErrKind::Io(inner) => inner.source(),
+            MusshErrKind::Ssh2(inner) => inner.source(),
+            MusshErrKind::TomlDe(inner) => inner.source(),
+            MusshErrKind::TomlSer(inner) => inner.source(),
             _ => None,
         }
     }
 }
 
-impl fmt::Display for MusshErrorKind {
+impl fmt::Display for MusshErrKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.description())
     }

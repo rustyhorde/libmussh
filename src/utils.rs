@@ -17,8 +17,10 @@ use std::time::Duration;
 
 /// Type used by multiplex to run commands on hosts
 ///
-/// This is a map of the following: Host Name -> (Host, Command Type -> (Command Name, Command))
-pub type HostsMapType = IndexMap<String, (Host, IndexMap<CmdType, IndexMap<String, String>>)>;
+/// This is a map of the following: `Host Name` to `Command Tuple`
+/// The `Command Tuple` consists of a `Host` and a `CmdType` map
+/// The `CmdType` map contains a map of `Command Name` to actual `Command`
+pub type MultiplexMapType = IndexMap<String, (Host, IndexMap<CmdType, IndexMap<String, String>>)>;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[allow(dead_code)]
@@ -54,8 +56,7 @@ crate fn unwanted_host(host: &str) -> Option<String> {
     }
 }
 
-/// Convert an iter of item into a ordered set.
-pub fn as_set<S, T>(iter: T) -> IndexSet<S>
+crate fn as_set<S, T>(iter: T) -> IndexSet<S>
 where
     T: IntoIterator<Item = S>,
     S: Hash + Eq,

@@ -6,8 +6,8 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
-use crate::error::{MusshError, MusshResult};
-use crate::utils::{self, CmdType, HostsMapType};
+use crate::error::{MusshErr, MusshResult};
+use crate::utils::{self, CmdType, MultiplexMapType};
 use clap::ArgMatches;
 use getset::{Getters, Setters};
 use indexmap::{IndexMap, IndexSet};
@@ -18,7 +18,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
-/// The set of hosts and commands to run
+/// The runtime configuration for mussh
 #[derive(Clone, Debug, Default, Eq, Getters, PartialEq, Setters)]
 pub struct HostsCmds {
     /// The set of hosts to run the commands on
@@ -180,7 +180,7 @@ impl Mussh {
 
     /// Create a host map suitable for use with multiples from this config, and
     /// argument matches from clap.
-    pub fn to_host_map(&self, host_cmds: &HostsCmds) -> HostsMapType {
+    pub fn to_host_map(&self, host_cmds: &HostsCmds) -> MultiplexMapType {
         let actual_hosts = self.actual_hosts(host_cmds.hosts());
         let actual_cmds = self.actual_cmds(host_cmds.cmds());
         let actual_sync_hosts = self.actual_hosts(host_cmds.sync_hosts());
@@ -214,7 +214,7 @@ impl Mussh {
 }
 
 impl TryFrom<PathBuf> for Mussh {
-    type Error = MusshError;
+    type Error = MusshErr;
 
     fn try_from(path: PathBuf) -> MusshResult<Self> {
         let mut buf_reader = BufReader::new(File::open(path)?);
@@ -281,7 +281,7 @@ pub struct Alias {
 crate mod test {
     use super::{Alias, Command, Host, Hosts, HostsCmds, Mussh};
     use crate::error::MusshResult;
-    use crate::utils::{CmdType, HostsMapType};
+    use crate::utils::CmdType;
     use clap::{App, Arg};
     use indexmap::IndexMap;
     use lazy_static::lazy_static;
@@ -562,7 +562,7 @@ command = "uname -a"
 
     #[test]
     fn hosts_from_cli() -> MusshResult<()> {
-        let mut expected: HostsMapType = IndexMap::new();
+        let mut expected = IndexMap::new();
         let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), EMPTY_CMD_MAP.clone()));
         let _ = expected.insert("m2".to_string(), (HOST_M2.clone(), EMPTY_CMD_MAP.clone()));
         let _ = expected.insert("m3".to_string(), (HOST_M3.clone(), EMPTY_CMD_MAP.clone()));
@@ -576,7 +576,7 @@ command = "uname -a"
 
     #[test]
     fn sync_hosts_from_cli() -> MusshResult<()> {
-        let mut expected: HostsMapType = IndexMap::new();
+        let mut expected = IndexMap::new();
         let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), EMPTY_CMD_MAP.clone()));
         let _ = expected.insert("m2".to_string(), (HOST_M2.clone(), EMPTY_CMD_MAP.clone()));
         let _ = expected.insert("m3".to_string(), (HOST_M3.clone(), EMPTY_CMD_MAP.clone()));
@@ -590,7 +590,7 @@ command = "uname -a"
 
     #[test]
     fn commands_from_cli() -> MusshResult<()> {
-        let mut expected: HostsMapType = IndexMap::new();
+        let mut expected = IndexMap::new();
         let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), ALL_CMD_MAP.clone()));
         let config: Mussh = toml::from_str(MUSSH_FULL_TOML)?;
         let cli = vec!["test", "-h", "m1", "-c", "ls,uname,bar,bar,ls,uname,bar"];
@@ -602,7 +602,7 @@ command = "uname -a"
 
     #[test]
     fn sync_commands_from_cli() -> MusshResult<()> {
-        let mut expected: HostsMapType = IndexMap::new();
+        let mut expected = IndexMap::new();
         let _ = expected.insert("m1".to_string(), (HOST_M1.clone(), SYNC_CMD_MAP.clone()));
         let config: Mussh = toml::from_str(MUSSH_FULL_TOML)?;
         let cli = vec!["test", "-h", "m1", "-y", "ls,uname,bar,bar,ls,uname,bar"];

@@ -8,121 +8,183 @@
 
 //! Multiplex commands over hosts.
 use crate::config::Host;
-use crate::error::{MusshErrorKind, MusshResult};
-use crate::utils::{convert_duration, CmdType, HostsMapType};
+use crate::error::{MusshErrKind, MusshResult};
+use crate::utils::{convert_duration, CmdType, MultiplexMapType};
+use getset::{Getters, Setters};
 use indexmap::{IndexMap, IndexSet};
+use slog::{error, info, trace, Logger};
+use slog_try::{try_error, try_info, try_trace};
+use ssh2::Session;
 use std::env;
 use std::io::{BufRead, BufReader};
+use std::net::TcpStream;
+use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Instant;
 use wait_group::WaitGroup;
 
-/// Multiplex the requested commands over the requested hosts
-pub fn multiplex(sync_hosts: &IndexSet<String>, hosts_map: HostsMapType) -> MusshResult<()> {
-    let wg = WaitGroup::new();
-    let (tx, rx) = mpsc::channel();
-    let count = hosts_map.len();
+type MultiplexResult = IndexMap<String, (String, MusshResult<()>)>;
 
-    for (hostname, (host, cmd_map)) in hosts_map {
-        // Setup the commands to run pre-sync
-        let mut pre_cmds = IndexMap::new();
-        if let Some(commands) = cmd_map.get(&CmdType::Cmd) {
-            pre_cmds = commands.clone();
-        }
+/// Multiplex ssh commands
+#[derive(Clone, Debug, Default, Getters, Setters)]
+pub struct Multiplex {
+    /// Is this going to be a dry run?
+    #[get = "pub"]
+    #[set = "pub"]
+    dry_run: bool,
+    /// Run the commands synchronously?
+    #[get = "pub"]
+    #[set = "pub"]
+    synchronous: bool,
+    /// stdout logging
+    #[get = "pub"]
+    #[set = "pub"]
+    stdout: Option<Logger>,
+    /// stderr logging
+    #[get = "pub"]
+    #[set = "pub"]
+    stderr: Option<Logger>,
+    /// command output logging
+    #[get = "pub"]
+    #[set = "pub"]
+    cmd: Option<Logger>,
+}
 
-        // Setup the commands to run post-sync
-        let mut sync_cmds = IndexMap::new();
-        if let Some(commands) = cmd_map.get(&CmdType::SyncCmd) {
-            sync_cmds = commands.clone();
-        }
+impl Multiplex {
+    /// Multiplex the requested commands over the requested hosts
+    pub fn multiplex(
+        self,
+        sync_hosts: &IndexSet<String>,
+        hosts_map: MultiplexMapType,
+    ) -> MusshResult<()> {
+        let wg = WaitGroup::new();
+        let (tx, rx) = mpsc::channel();
+        let count = hosts_map.len();
 
-        // If this is a sync host, add it to the wait group, and mark it
-        let mut sync_host = false;
-        if sync_hosts.contains(&hostname) {
-            sync_host = true;
-            wg.add(1);
-        }
-
-        // Setup the clones to move into the thread
-        let wg_cl = wg.clone();
-        let tx_cl = tx.clone();
-        let hn_cl = hostname.clone();
-        let h_cl = host.clone();
-
-        // The worker thread that will run the commands on the host
-        let _ = thread::spawn(move || {
-            if sync_host {
-                println!("Running on sync host: {}", hn_cl);
+        for (hostname, (host, cmd_map)) in hosts_map {
+            // Setup the commands to run pre-sync
+            let mut pre_cmds = IndexMap::new();
+            if let Some(commands) = cmd_map.get(&CmdType::Cmd) {
+                pre_cmds = commands.clone();
             }
-            let mut results: IndexMap<String, (String, MusshResult<()>)> =
-                execute(&h_cl, &pre_cmds);
 
-            if sync_host {
-                results.extend(execute(&h_cl, &sync_cmds));
-                println!("Done on '{}'", hn_cl);
-                wg_cl.done();
-            } else {
-                println!("Waiting on sync commands on '{}'", hn_cl);
-                wg_cl.wait();
-                println!("Unblocked, running sync commands on '{}'", hn_cl);
-                results.extend(execute(&h_cl, &sync_cmds));
+            // Setup the commands to run post-sync
+            let mut sync_cmds = IndexMap::new();
+            if let Some(commands) = cmd_map.get(&CmdType::SyncCmd) {
+                sync_cmds = commands.clone();
             }
-            tx_cl.send(results).expect("unable to send response");
-        });
+
+            // If this is a sync host, add it to the wait group, and mark it
+            let mut sync_host = false;
+            if sync_hosts.contains(&hostname) {
+                sync_host = true;
+                wg.add(1);
+            }
+
+            if !self.dry_run {
+                // Setup the clones to move into the thread
+                let wg_cl = wg.clone();
+                let tx_cl = tx.clone();
+                let h_cl = host.clone();
+                let stdout_cl = self.stdout.clone();
+                let stderr_cl = self.stderr.clone();
+                let cmd_cl = self.cmd.clone();
+
+                // The worker thread that will run the commands on the host
+                let _ = thread::spawn(move || {
+                    let mut results = execute(&stdout_cl, &stderr_cl, &cmd_cl, &h_cl, &pre_cmds);
+
+                    if sync_host {
+                        results.extend(execute(&stdout_cl, &stderr_cl, &cmd_cl, &h_cl, &sync_cmds));
+                        wg_cl.done();
+                    } else {
+                        wg_cl.wait();
+                        results.extend(execute(&stdout_cl, &stderr_cl, &cmd_cl, &h_cl, &sync_cmds));
+                    }
+                    tx_cl.send(results).expect("unable to send response");
+                });
+
+                if self.synchronous {
+                    self.receive(&rx);
+                }
+            }
+        }
+
+        if !self.dry_run && !self.synchronous {
+            // Wait for all the threads to finish
+            for _ in 0..count {
+                self.receive(&rx);
+            }
+        }
+
+        Ok(())
     }
 
-    // Wait for all the threads to finish
-    for _ in 0..count {
+    fn receive(&self, rx: &Receiver<MultiplexResult>) {
         match rx.recv() {
             Ok(results) => {
                 for (cmd_name, (hostname, res)) in results {
                     if let Err(e) = res {
-                        eprintln!("Failed to run '{}' on '{}': {}", cmd_name, hostname, e);
-                        // try_error!(
-                        //     self.stderr,
-                        //     "Failed to run '{}' on '{}': {}",
-                        //     cmd_name,
-                        //     hostname,
-                        //     e
-                        // );
+                        try_error!(
+                            self.stderr,
+                            "Failed to run '{}' on '{}': {}",
+                            cmd_name,
+                            hostname,
+                            e
+                        );
                     }
                 }
             }
-            Err(e) => eprintln!("{}", e),
-            // try_error!(self.stderr, "{}", e);
+            Err(e) => try_error!(self.stderr, "{}", e),
         }
     }
-    Ok(())
 }
 
 fn execute(
+    stdout: &Option<Logger>,
+    stderr: &Option<Logger>,
+    cmd_logger: &Option<Logger>,
     host: &Host,
     cmds: &IndexMap<String, String>,
-) -> IndexMap<String, (String, MusshResult<()>)> {
+) -> MultiplexResult {
     cmds.iter()
         .map(|(cmd_name, cmd)| {
             (
                 cmd_name.clone(),
                 (
                     host.hostname().clone(),
-                    execute_on_host(host, cmd_name, cmd),
+                    execute_on_host(stdout, stderr, cmd_logger, host, cmd_name, cmd),
                 ),
             )
         })
         .collect()
 }
 
-fn execute_on_host(host: &Host, cmd_name: &str, cmd: &str) -> MusshResult<()> {
+fn execute_on_host(
+    stdout: &Option<Logger>,
+    stderr: &Option<Logger>,
+    cmd_logger: &Option<Logger>,
+    host: &Host,
+    cmd_name: &str,
+    cmd: &str,
+) -> MusshResult<()> {
     if host.hostname() == "localhost" {
-        execute_on_localhost(host, cmd_name, cmd)
+        execute_on_localhost(stdout, stderr, cmd_logger, host, cmd_name, cmd)
     } else {
-        execute_on_remote(host, cmd_name, cmd)
+        execute_on_remote(stdout, stderr, cmd_logger, host, cmd_name, cmd)
     }
 }
 
-fn execute_on_localhost(host: &Host, cmd_name: &str, cmd: &str) -> MusshResult<()> {
+fn execute_on_localhost(
+    stdout: &Option<Logger>,
+    stderr: &Option<Logger>,
+    cmd_logger: &Option<Logger>,
+    host: &Host,
+    cmd_name: &str,
+    cmd: &str,
+) -> MusshResult<()> {
     if let Some(shell_path) = env::var_os("SHELL") {
         let timer = Instant::now();
         let fish = shell_path.to_string_lossy().to_string();
@@ -137,8 +199,7 @@ fn execute_on_localhost(host: &Host, cmd_name: &str, cmd: &str) -> MusshResult<(
             let stdout_reader = BufReader::new(child_stdout);
             for line in stdout_reader.lines() {
                 if let Ok(line) = line {
-                    println!("{}", line);
-                    // trace!(file_logger, "{}", line);
+                    try_trace!(cmd_logger, "{}", line);
                 }
             }
 
@@ -146,43 +207,117 @@ fn execute_on_localhost(host: &Host, cmd_name: &str, cmd: &str) -> MusshResult<(
             let elapsed_str = convert_duration(timer.elapsed());
 
             if status.success() {
-                println!("{}: {} => {}", host.hostname(), cmd_name, elapsed_str);
-            //     try_info!(
-            //         stdout,
-            //         "execute";
-            //         "host" => host.hostname(),
-            //         "cmd" => cmd_name,
-            //         "duration" => elapsed_str
-            //     );
-            } else {
-                eprintln!(
-                    "{}: {} ERROR! => {}",
-                    host.hostname(),
-                    cmd_name,
-                    elapsed_str
+                try_info!(
+                    stdout,
+                    "execute";
+                    "host" => host.hostname(),
+                    "cmd" => cmd_name,
+                    "duration" => elapsed_str
                 );
-                // try_error!(
-                //     stderr,
-                //     "execute";
-                //     "host" => host.hostname(),
-                //     "cmd" => cmd_name,
-                //     "duration" => elapsed_str
-                // );
+            } else {
+                try_error!(
+                    stderr,
+                    "execute";
+                    "host" => host.hostname(),
+                    "cmd" => cmd_name,
+                    "duration" => elapsed_str
+                );
             }
         }
         Ok(())
     } else {
-        Err(MusshErrorKind::ShellNotFound.into())
+        Err(MusshErrKind::ShellNotFound.into())
     }
 }
 
-fn execute_on_remote(_host: &Host, _cmd_name: &str, _cmd: &str) -> MusshResult<()> {
-    Ok(())
+fn execute_on_remote(
+    stdout: &Option<Logger>,
+    stderr: &Option<Logger>,
+    cmd_logger: &Option<Logger>,
+    host: &Host,
+    cmd_name: &str,
+    cmd: &str,
+) -> MusshResult<()> {
+    if let Some(mut sess) = Session::new() {
+        let timer = Instant::now();
+        let host_tuple = (&host.hostname()[..], host.port().unwrap_or_else(|| 22));
+        let tcp = TcpStream::connect(host_tuple)?;
+        sess.handshake(&tcp)?;
+        if let Some(pem) = host.pem() {
+            sess.userauth_pubkey_file(host.username(), None, Path::new(&pem), None)?;
+        } else {
+            try_trace!(stdout, "execute"; "message" => "Agent Auth Setup", "username" => host.username());
+            let mut agent = sess.agent()?;
+            agent.connect()?;
+            agent.list_identities()?;
+            for identity in agent.identities() {
+                if let Ok(ref id) = identity {
+                    if agent.userauth(host.username(), id).is_ok() {
+                        break;
+                    }
+                }
+            }
+            agent.disconnect()?;
+        }
+
+        if sess.authenticated() {
+            try_trace!(stdout, "execute"; "message" => "Authenticated");
+            let mut channel = sess.channel_session()?;
+            channel.exec(cmd)?;
+
+            {
+                let stdout_stream = channel.stream(0);
+                let stdout_reader = BufReader::new(stdout_stream);
+
+                for line in stdout_reader.lines() {
+                    if let Ok(line) = line {
+                        try_trace!(cmd_logger, "{}", line);
+                    }
+                }
+            }
+
+            let elapsed_str = convert_duration(timer.elapsed());
+            match channel.exit_status() {
+                Ok(code) => {
+                    if code == 0 {
+                        try_info!(
+                            stdout,
+                            "execute";
+                            "host" => host.hostname(),
+                            "cmd" => cmd_name,
+                            "duration" => elapsed_str
+                        );
+                        Ok(())
+                    } else {
+                        try_error!(
+                            stderr,
+                            "execute";
+                            "host" => host.hostname(),
+                            "cmd" => cmd_name,
+                            "duration" => elapsed_str
+                        );
+                        Err("ssh cmd failed".into())
+                    }
+                }
+                Err(e) => {
+                    try_error!(
+                        stderr,
+                        "execute"; "hostname" => host.hostname(), "cmd" => cmd_name, "error" => format!("{}", e)
+                    );
+                    Err(e.into())
+                }
+            }
+        } else {
+            Err(MusshErrKind::SshAuthentication.into())
+        }
+    } else {
+        Err(MusshErrKind::SshSession.into())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::multiplex;
+    use super::Multiplex;
     use crate::config::test::test_cli;
     use crate::config::{HostsCmds, Mussh};
     use crate::error::MusshResult;
@@ -234,7 +369,8 @@ command = "uname -a"
         let matches = test_cli().get_matches_from_safe(cli)?;
         let hosts_cmds = HostsCmds::from(&matches);
         let hosts_map = config.to_host_map(&hosts_cmds);
-        let _ = multiplex(hosts_cmds.sync_hosts(), hosts_map);
+        let multiplex = Multiplex::default();
+        let _ = multiplex.multiplex(hosts_cmds.sync_hosts(), hosts_map);
         Ok(())
     }
 }

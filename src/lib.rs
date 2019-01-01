@@ -47,7 +47,7 @@ mod error;
 mod ssh;
 mod utils;
 
-pub use self::config::{HostsCmds, Mussh};
-pub use self::error::{MusshError, MusshResult};
-pub use self::ssh::multiplex;
-pub use self::utils::{as_set, HostsMapType};
+pub use self::config::{HostsCmds as RuntimeConfig, Mussh as Config};
+pub use self::error::{MusshErr as Error, MusshResult as Result};
+pub use self::ssh::Multiplex;
+pub use self::utils::MultiplexMapType;
