@@ -1,4 +1,4 @@
-// Copyright (c) 2018 libmussh developers
+// Copyright © 2018 libmussh developers
 //
 // Licensed under the Apache License, Version 2.0
 // <LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0> or the MIT
@@ -6,6 +6,7 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
+//! Configuration
 use crate::error::{MusshErr, MusshResult};
 use crate::utils::{self, CmdType, MultiplexMapType};
 use clap::ArgMatches;
