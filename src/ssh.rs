@@ -30,15 +30,19 @@ use wait_group::WaitGroup;
 type MultiplexResult = Vec<MusshResult<Metrics>>;
 
 /// Execution metrics
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Getters, PartialEq)]
 pub struct Metrics {
     /// The hostname where the command was run
+    #[get = "pub"]
     hostname: String,
     /// The name of the command that was run
+    #[get = "pub"]
     cmd_name: String,
     /// The duration of the execution
+    #[get = "pub"]
     duration: Duration,
     /// The timestamp when this metric was created
+    #[get = "pub"]
     timestamp: i64,
 }
 
