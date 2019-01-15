@@ -68,7 +68,7 @@ crate fn map_vals(values: Values<'_>) -> Vec<String> {
     values.map(|v| v.to_string()).collect()
 }
 
-crate fn convert_duration(duration: Duration) -> String {
+crate fn convert_duration(duration: &Duration) -> String {
     let seconds = duration.as_secs();
     let millis = duration.subsec_millis();
     if seconds < 1 {

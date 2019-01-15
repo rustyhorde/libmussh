@@ -10,6 +10,7 @@
 use crate::config::Host;
 use crate::error::{MusshErrKind, MusshResult};
 use crate::utils::{convert_duration, CmdType, MultiplexMapType};
+use chrono::Utc;
 use getset::{Getters, Setters};
 use indexmap::{IndexMap, IndexSet};
 use slog::{error, info, trace, Logger};
@@ -23,10 +24,34 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use wait_group::WaitGroup;
 
-type MultiplexResult = IndexMap<String, (String, MusshResult<()>)>;
+type MultiplexResult = Vec<MusshResult<Metrics>>;
+
+/// Execution metrics
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Metrics {
+    /// The hostname where the command was run
+    hostname: String,
+    /// The name of the command that was run
+    cmd_name: String,
+    /// The duration of the execution
+    duration: Duration,
+    /// The timestamp when this metric was created
+    timestamp: i64,
+}
+
+impl Default for Metrics {
+    fn default() -> Self {
+        Self {
+            hostname: String::new(),
+            cmd_name: String::new(),
+            duration: Duration::new(0, 0),
+            timestamp: 0,
+        }
+    }
+}
 
 /// Multiplex ssh commands
 #[derive(Clone, Debug, Default, Getters, Setters)]
@@ -59,10 +84,11 @@ impl Multiplex {
         self,
         sync_hosts: &IndexSet<String>,
         hosts_map: MultiplexMapType,
-    ) -> MusshResult<()> {
+    ) -> MultiplexResult {
         let wg = WaitGroup::new();
         let (tx, rx) = mpsc::channel();
         let count = hosts_map.len();
+        let mut results = Vec::new();
 
         for (hostname, (host, cmd_map)) in hosts_map {
             // Setup the commands to run pre-sync
@@ -108,7 +134,7 @@ impl Multiplex {
                 });
 
                 if self.synchronous {
-                    self.receive(&rx);
+                    self.receive(&rx, &mut results);
                 }
             }
         }
@@ -116,28 +142,16 @@ impl Multiplex {
         if !self.dry_run && !self.synchronous {
             // Wait for all the threads to finish
             for _ in 0..count {
-                self.receive(&rx);
+                self.receive(&rx, &mut results);
             }
         }
 
-        Ok(())
+        results
     }
 
-    fn receive(&self, rx: &Receiver<MultiplexResult>) {
+    fn receive(&self, rx: &Receiver<MultiplexResult>, output: &mut Vec<MusshResult<Metrics>>) {
         match rx.recv() {
-            Ok(results) => {
-                for (cmd_name, (hostname, res)) in results {
-                    if let Err(e) = res {
-                        try_error!(
-                            self.stderr,
-                            "Failed to run '{}' on '{}': {}",
-                            cmd_name,
-                            hostname,
-                            e
-                        );
-                    }
-                }
-            }
+            Ok(results) => output.extend(results),
             Err(e) => try_error!(self.stderr, "{}", e),
         }
     }
@@ -151,15 +165,7 @@ fn execute(
     cmds: &IndexMap<String, String>,
 ) -> MultiplexResult {
     cmds.iter()
-        .map(|(cmd_name, cmd)| {
-            (
-                cmd_name.clone(),
-                (
-                    host.hostname().clone(),
-                    execute_on_host(stdout, stderr, cmd_logger, host, cmd_name, cmd),
-                ),
-            )
-        })
+        .map(|(cmd_name, cmd)| execute_on_host(stdout, stderr, cmd_logger, host, cmd_name, cmd))
         .collect()
 }
 
@@ -170,7 +176,7 @@ fn execute_on_host(
     host: &Host,
     cmd_name: &str,
     cmd: &str,
-) -> MusshResult<()> {
+) -> MusshResult<Metrics> {
     if host.hostname() == "localhost" {
         execute_on_localhost(stdout, stderr, cmd_logger, host, cmd_name, cmd)
     } else {
@@ -185,7 +191,7 @@ fn execute_on_localhost(
     host: &Host,
     cmd_name: &str,
     cmd: &str,
-) -> MusshResult<()> {
+) -> MusshResult<Metrics> {
     if let Some(shell_path) = env::var_os("SHELL") {
         let timer = Instant::now();
         let fish = shell_path.to_string_lossy().to_string();
@@ -205,9 +211,16 @@ fn execute_on_localhost(
             }
 
             let status = child.wait()?;
-            let elapsed_str = convert_duration(timer.elapsed());
+            let duration = timer.elapsed();
+            let hostname = host.hostname().clone();
+            let elapsed_str = convert_duration(&duration);
 
             if status.success() {
+                let mut metrics = Metrics::default();
+                metrics.hostname = hostname.clone();
+                metrics.cmd_name = cmd_name.to_string();
+                metrics.duration = duration;
+                metrics.timestamp = Utc::now().timestamp_millis();
                 try_info!(
                     stdout,
                     "execute";
@@ -215,6 +228,7 @@ fn execute_on_localhost(
                     "cmd" => cmd_name,
                     "duration" => elapsed_str
                 );
+                Ok(metrics)
             } else {
                 try_error!(
                     stderr,
@@ -223,9 +237,12 @@ fn execute_on_localhost(
                     "cmd" => cmd_name,
                     "duration" => elapsed_str
                 );
+                let err_msg = format!("Failed to run '{}' on '{}'", hostname, cmd_name);
+                Err(MusshErrKind::NonZero(err_msg).into())
             }
+        } else {
+            Err(MusshErrKind::Spawn.into())
         }
-        Ok(())
     } else {
         Err(MusshErrKind::ShellNotFound.into())
     }
@@ -238,7 +255,7 @@ fn execute_on_remote(
     host: &Host,
     cmd_name: &str,
     cmd: &str,
-) -> MusshResult<()> {
+) -> MusshResult<Metrics> {
     if let Some(mut sess) = Session::new() {
         let timer = Instant::now();
         let host_tuple = (&host.hostname()[..], host.port().unwrap_or_else(|| 22));
@@ -277,10 +294,18 @@ fn execute_on_remote(
                 }
             }
 
-            let elapsed_str = convert_duration(timer.elapsed());
+            let duration = timer.elapsed();
+            let elapsed_str = convert_duration(&duration);
+
             match channel.exit_status() {
                 Ok(code) => {
                     if code == 0 {
+                        let mut metrics = Metrics::default();
+                        metrics.hostname = host.hostname().to_string();
+                        metrics.cmd_name = cmd_name.to_string();
+                        metrics.duration = duration;
+                        metrics.timestamp = Utc::now().timestamp_millis();
+
                         try_info!(
                             stdout,
                             "execute";
@@ -288,7 +313,7 @@ fn execute_on_remote(
                             "cmd" => cmd_name,
                             "duration" => elapsed_str
                         );
-                        Ok(())
+                        Ok(metrics)
                     } else {
                         try_error!(
                             stderr,
@@ -297,7 +322,9 @@ fn execute_on_remote(
                             "cmd" => cmd_name,
                             "duration" => elapsed_str
                         );
-                        Err("ssh cmd failed".into())
+                        let err_msg =
+                            format!("Failed to run '{}' on '{}'", host.hostname(), cmd_name);
+                        Err(MusshErrKind::NonZero(err_msg).into())
                     }
                 }
                 Err(e) => {
@@ -305,7 +332,8 @@ fn execute_on_remote(
                         stderr,
                         "execute"; "hostname" => host.hostname(), "cmd" => cmd_name, "error" => format!("{}", e)
                     );
-                    Err(e.into())
+                    let err_msg = format!("Failed to run '{}' on '{}'", host.hostname(), cmd_name);
+                    Err(MusshErrKind::SshExec(err_msg).into())
                 }
             }
         } else {
