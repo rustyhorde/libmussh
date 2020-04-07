@@ -31,7 +31,7 @@ impl fmt::Display for MusshErr {
         let err: &(dyn Error) = self;
         let mut iter = err.chain();
         let _skip_me = iter.next();
-        write!(f, "{}", self.inner)?;
+        write!(f, "libmussh error")?;
 
         for e in iter {
             writeln!(f)?;
