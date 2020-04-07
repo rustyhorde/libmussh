@@ -266,6 +266,7 @@ fn execute_on_remote(
         let host_tuple = (&host.hostname()[..], host.port().unwrap_or_else(|| 22));
         let tcp = TcpStream::connect(host_tuple)?;
         sess.set_tcp_stream(tcp);
+        sess.handshake()?;
         if let Some(pem) = host.pem() {
             sess.userauth_pubkey_file(host.username(), None, Path::new(&pem), None)?;
         } else {
