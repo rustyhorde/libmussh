@@ -65,7 +65,7 @@ where
 }
 
 crate fn map_vals(values: Values<'_>) -> Vec<String> {
-    values.map(|v| v.to_string()).collect()
+    values.map(ToString::to_string).collect()
 }
 
 crate fn convert_duration(duration: &Duration) -> String {

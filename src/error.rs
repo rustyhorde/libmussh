@@ -21,10 +21,6 @@ pub struct MusshErr {
 }
 
 impl Error for MusshErr {
-    fn description(&self) -> &str {
-        "Mussh Error"
-    }
-
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&self.inner)
     }
@@ -32,12 +28,16 @@ impl Error for MusshErr {
 
 impl fmt::Display for MusshErr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.description())?;
+        let err: &(dyn Error) = self;
+        let mut iter = err.chain();
+        let _skip_me = iter.next();
+        write!(f, "{}", self.inner)?;
 
-        if let Some(source) = self.source() {
-            write!(f, ": {}", source)?;
+        for e in iter {
+            writeln!(f)?;
+            write!(f, "{}", e)?;
         }
-        write!(f, "")
+        Ok(())
     }
 }
 
@@ -90,22 +90,6 @@ crate enum MusshErrKind {
 }
 
 impl Error for MusshErrKind {
-    fn description(&self) -> &str {
-        match self {
-            MusshErrKind::Clap(inner) => inner.description(),
-            MusshErrKind::Io(inner) => inner.description(),
-            MusshErrKind::NonZero(description) | MusshErrKind::SshExec(description) => description,
-            MusshErrKind::ShellNotFound => "no acceptable shell found",
-            MusshErrKind::Ssh2(inner) => inner.description(),
-            MusshErrKind::SshAuthentication => "ssh authentication",
-            MusshErrKind::SshSession => "ssh session",
-            MusshErrKind::Spawn => "failed to spawn command",
-            MusshErrKind::Str(inner) => &inner[..],
-            MusshErrKind::TomlDe(inner) => inner.description(),
-            MusshErrKind::TomlSer(inner) => inner.description(),
-        }
-    }
-
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             MusshErrKind::Clap(inner) => inner.source(),
@@ -120,6 +104,6 @@ impl Error for MusshErrKind {
 
 impl fmt::Display for MusshErrKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.description())
+        write!(f, "{}", self)
     }
 }

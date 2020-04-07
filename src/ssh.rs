@@ -84,6 +84,7 @@ pub struct Multiplex {
 
 impl Multiplex {
     /// Multiplex the requested commands over the requested hosts
+    #[must_use]
     pub fn multiplex(
         self,
         sync_hosts: &IndexSet<String>,
@@ -221,7 +222,7 @@ fn execute_on_localhost(
 
             if status.success() {
                 let mut metrics = Metrics::default();
-                metrics.hostname = hostname.clone();
+                metrics.hostname = hostname;
                 metrics.cmd_name = cmd_name.to_string();
                 metrics.duration = duration;
                 metrics.timestamp = Utc::now().timestamp_millis();
@@ -260,26 +261,15 @@ fn execute_on_remote(
     cmd_name: &str,
     cmd: &str,
 ) -> MusshResult<Metrics> {
-    if let Some(mut sess) = Session::new() {
+    if let Ok(mut sess) = Session::new() {
         let timer = Instant::now();
         let host_tuple = (&host.hostname()[..], host.port().unwrap_or_else(|| 22));
         let tcp = TcpStream::connect(host_tuple)?;
-        sess.handshake(&tcp)?;
+        sess.set_tcp_stream(tcp);
         if let Some(pem) = host.pem() {
             sess.userauth_pubkey_file(host.username(), None, Path::new(&pem), None)?;
         } else {
-            try_trace!(stdout, "execute"; "message" => "Agent Auth Setup", "username" => host.username());
-            let mut agent = sess.agent()?;
-            agent.connect()?;
-            agent.list_identities()?;
-            for identity in agent.identities() {
-                if let Ok(ref id) = identity {
-                    if agent.userauth(host.username(), id).is_ok() {
-                        break;
-                    }
-                }
-            }
-            agent.disconnect()?;
+            sess.userauth_agent(host.username())?;
         }
 
         if sess.authenticated() {

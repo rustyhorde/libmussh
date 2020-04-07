@@ -47,25 +47,25 @@ impl From<&ArgMatches<'_>> for HostsCmds {
         hosts_cmds.hosts = utils::as_set(
             matches
                 .values_of("hosts")
-                .map_or_else(|| vec![], utils::map_vals),
+                .map_or_else(Vec::new, utils::map_vals),
         );
 
         hosts_cmds.sync_hosts = utils::as_set(
             matches
                 .values_of("sync_hosts")
-                .map_or_else(|| vec![], utils::map_vals),
+                .map_or_else(Vec::new, utils::map_vals),
         );
 
         hosts_cmds.cmds = utils::as_set(
             matches
                 .values_of("commands")
-                .map_or_else(|| vec![], utils::map_vals),
+                .map_or_else(Vec::new, utils::map_vals),
         );
 
         hosts_cmds.sync_cmds = utils::as_set(
             matches
                 .values_of("sync_commands")
-                .map_or_else(|| vec![], utils::map_vals),
+                .map_or_else(Vec::new, utils::map_vals),
         );
 
         hosts_cmds
@@ -93,7 +93,7 @@ impl Mussh {
     crate fn hostnames(&self, host: &str) -> Vec<String> {
         self.hostlist()
             .get(host)
-            .map_or_else(|| vec![], |hosts| hosts.hostnames().clone())
+            .map_or_else(Vec::new, |hosts| hosts.hostnames().clone())
     }
 
     fn configured_hostlists(&self) -> IndexSet<String> {
@@ -104,33 +104,25 @@ impl Mussh {
         utils::as_set(self.cmd().keys().cloned())
     }
 
-    fn requested(&self, commands: &IndexSet<String>) -> IndexSet<String> {
-        utils::as_set(commands.iter().cloned())
-    }
-
     fn expanded(&self, hosts: &IndexSet<String>) -> IndexSet<String> {
         utils::as_set(hosts.iter().flat_map(|host| self.hostnames(host)))
-    }
-
-    fn unwanted(&self, hosts: &IndexSet<String>) -> IndexSet<String> {
-        utils::as_set(hosts.iter().filter_map(|host| utils::unwanted_host(host)))
     }
 
     fn host_tuple(&self, hostname: &str) -> Option<(String, Host)> {
         self.hosts()
             .get(hostname)
-            .and_then(|host| Some((hostname.to_string(), host.clone())))
+            .map(|host| (hostname.to_string(), host.clone()))
     }
 
     fn cmd_tuple(&self, cmd_name: &str) -> Option<(String, Command)> {
         self.cmd()
             .get(cmd_name)
-            .and_then(|cmd| Some((cmd_name.to_string(), cmd.clone())))
+            .map(|cmd| (cmd_name.to_string(), cmd.clone()))
     }
 
     fn actual_hosts(&self, hosts: &IndexSet<String>) -> IndexMap<String, Host> {
         let mut expanded = self.expanded(hosts);
-        let unwanted = self.unwanted(hosts);
+        let unwanted = unwanted(hosts);
         expanded.retain(|x| !unwanted.contains(x));
         let configured = self.configured_hostlists();
         expanded
@@ -140,7 +132,7 @@ impl Mussh {
     }
 
     fn actual_cmds(&self, commands: &IndexSet<String>) -> IndexMap<String, Command> {
-        let requested = self.requested(commands);
+        let requested = requested(commands);
         let configured = self.configured_cmds();
         requested
             .intersection(&configured)
@@ -181,6 +173,7 @@ impl Mussh {
 
     /// Create a host map suitable for use with multiples from this config, and
     /// argument matches from clap.
+    #[must_use]
     pub fn to_host_map(&self, host_cmds: &HostsCmds) -> MultiplexMapType {
         let actual_hosts = self.actual_hosts(host_cmds.hosts());
         let actual_cmds = self.actual_cmds(host_cmds.cmds());
@@ -223,6 +216,14 @@ impl TryFrom<PathBuf> for Mussh {
         let _bytes_read = buf_reader.read_to_string(&mut buffer)?;
         Ok(toml::from_str(&buffer)?)
     }
+}
+
+fn requested(commands: &IndexSet<String>) -> IndexSet<String> {
+    utils::as_set(commands.iter().cloned())
+}
+
+fn unwanted(hosts: &IndexSet<String>) -> IndexSet<String> {
+    utils::as_set(hosts.iter().filter_map(|host| utils::unwanted_host(host)))
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, Getters, PartialEq, Serialize)]
