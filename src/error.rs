@@ -104,6 +104,13 @@ impl Error for MusshErrKind {
 
 impl fmt::Display for MusshErrKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self)
+        match self {
+            MusshErrKind::Clap(inner) => write!(f, "{}", inner),
+            MusshErrKind::Io(inner) => write!(f, "{}", inner),
+            MusshErrKind::Ssh2(inner) => write!(f, "{}", inner),
+            MusshErrKind::TomlDe(inner) => write!(f, "{}", inner),
+            MusshErrKind::TomlSer(inner) => write!(f, "{}", inner),
+            _ => Ok(()),
+        }
     }
 }
